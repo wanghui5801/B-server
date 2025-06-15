@@ -753,6 +753,82 @@ def get_memory_info():
             'swap_detail': "0 MiB / 0 MiB"
         }
 
+def get_cpu_info():
+    """获取CPU详细信息：型号、核心数、线程数"""
+    try:
+        # 获取逻辑CPU数量（线程数）
+        logical_cpus = psutil.cpu_count(logical=True)
+        # 获取物理CPU核心数
+        physical_cpus = psutil.cpu_count(logical=False)
+        
+        # 如果无法获取物理核心数，使用逻辑CPU数
+        if physical_cpus is None:
+            physical_cpus = logical_cpus
+        
+        cpu_model = "Unknown CPU"
+        
+        # 根据操作系统获取CPU型号
+        if platform.system() == 'Linux':
+            try:
+                with open('/proc/cpuinfo', 'r') as f:
+                    for line in f:
+                        if line.startswith('model name'):
+                            cpu_model = line.split(':', 1)[1].strip()
+                            break
+            except (FileNotFoundError, PermissionError):
+                pass
+        elif platform.system() == 'Windows':
+            try:
+                # 尝试使用wmi模块
+                import wmi
+                c = wmi.WMI()
+                for processor in c.Win32_Processor():
+                    cpu_model = processor.Name.strip()
+                    break
+            except ImportError:
+                try:
+                    # 备用方法：使用注册表
+                    import winreg
+                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                                       r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+                    cpu_model = winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
+                    winreg.CloseKey(key)
+                except:
+                    pass
+        elif platform.system() == 'Darwin':  # macOS
+            try:
+                result = subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    cpu_model = result.stdout.strip()
+            except:
+                pass
+        
+        # 清理CPU型号字符串，移除多余空格和频率信息
+        if cpu_model != "Unknown CPU":
+            # 移除多余空格
+            cpu_model = ' '.join(cpu_model.split())
+            # 只移除频率信息（@ 后面的部分），保留完整的CPU型号
+            cpu_model = re.sub(r'\s+@\s*[\d.]+\s*GHz.*$', '', cpu_model)  # 移除频率信息
+            # 移除末尾的 "Processor" 但保留 "CPU" 和具体型号
+            cpu_model = re.sub(r'\s+Processor\s*$', '', cpu_model)
+        
+        return {
+            'model': cpu_model,
+            'cores': physical_cpus,
+            'threads': logical_cpus,
+            'info_string': f"{cpu_model}({physical_cpus}c|{logical_cpus}t)"
+        }
+        
+    except Exception as e:
+        print(f"[CPU] Error getting CPU info: {e}")
+        return {
+            'model': "Unknown CPU",
+            'cores': 1,
+            'threads': 1,
+            'info_string': "Unknown CPU(1c|1t)"
+        }
+
 def get_uptime():
     """获取系统运行时间（天）"""
     try:
@@ -1122,6 +1198,10 @@ def collect_info():
         cpu = get_cpu_usage()
         print(f"[Data] CPU usage: {cpu}%")
         
+        # CPU详细信息
+        cpu_info = get_cpu_info()
+        print(f"[Data] CPU info: {cpu_info['info_string']}")
+        
         # 内存使用率（优化版本）
         memory_info = get_memory_info()
         ram = memory_info['percent']
@@ -1137,7 +1217,8 @@ def collect_info():
             'memory': memory_info['detail'],
             'swap': memory_info['swap_detail'],
             'disk': disk_info['detail'],
-            'partitions_count': disk_info['partitions_count']
+            'partitions_count': disk_info['partitions_count'],
+            'cpu_info': cpu_info['info_string']
         }
         
         data = {
@@ -1188,7 +1269,8 @@ def collect_info():
                 'memory': '0 MiB / 0 MiB',
                 'swap': '0 MiB / 0 MiB',
                 'disk': '0 GiB / 0 GiB',
-                'partitions_count': 0
+                'partitions_count': 0,
+                'cpu_info': 'Unknown CPU(1c|1t)'
             }
         }
 
