@@ -463,109 +463,37 @@ def detect_system_type():
         # Windows检测（如果运行在Windows上）
         if platform.system() == 'Windows':
             try:
-                # 首先尝试使用wmi模块（如果可用）
-                try:
-                    import wmi
-                    c = wmi.WMI()
-                    for computer in c.Win32_ComputerSystem():
-                        model = computer.Model.lower() if computer.Model else ""
-                        manufacturer = computer.Manufacturer.lower() if computer.Manufacturer else ""
-                        
-                        if 'virtualbox' in model or 'virtualbox' in manufacturer:
-                            _cached_system_type = "VirtualBox"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'vmware' in model or 'vmware' in manufacturer:
-                            _cached_system_type = "VMware"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'virtual machine' in model or ('microsoft corporation' in manufacturer and 'virtual' in model):
-                            _cached_system_type = "Hyper-V"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'parallels' in model or 'parallels' in manufacturer:
-                            _cached_system_type = "Parallels"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'qemu' in model or 'qemu' in manufacturer:
-                            _cached_system_type = "QEMU"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'bochs' in model or 'bochs' in manufacturer:
-                            _cached_system_type = "Bochs"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'amazon' in manufacturer or 'amazon ec2' in model:
-                            _cached_system_type = "AWS EC2"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'google' in manufacturer or 'google compute engine' in model:
-                            _cached_system_type = "GCP VM"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                        elif 'microsoft corporation' in manufacturer and 'azure' in model.lower():
-                            _cached_system_type = "Azure VM"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
-                            return _cached_system_type
-                except ImportError:
-                    print("[INFO] WMI模块不可用，使用备用检测方法")
-                
-                # 备用方法：使用systeminfo命令
-                try:
-                    result = subprocess.run(['systeminfo'], capture_output=True, text=True, timeout=10, shell=True)
-                    if result.returncode == 0:
-                        output = result.stdout.lower()
-                        if 'vmware' in output:
-                            _cached_system_type = "VMware"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows systeminfo)")
-                            return _cached_system_type
-                        elif 'virtualbox' in output:
-                            _cached_system_type = "VirtualBox"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows systeminfo)")
-                            return _cached_system_type
-                        elif 'hyper-v' in output or 'microsoft corporation' in output:
-                            _cached_system_type = "Hyper-V"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows systeminfo)")
-                            return _cached_system_type
-                        elif 'amazon' in output:
-                            _cached_system_type = "AWS EC2"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows systeminfo)")
-                            return _cached_system_type
-                        elif 'google' in output:
-                            _cached_system_type = "GCP VM"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows systeminfo)")
-                            return _cached_system_type
-                except:
-                    pass
-                
-                # 检查注册表（如果可用）
-                try:
-                    import winreg
-                    # 检查BIOS信息
-                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\BIOS")
-                    try:
-                        bios_vendor = winreg.QueryValueEx(key, "BIOSVendor")[0].lower()
-                        system_manufacturer = winreg.QueryValueEx(key, "SystemManufacturer")[0].lower()
-                        
-                        if 'vmware' in bios_vendor or 'vmware' in system_manufacturer:
-                            _cached_system_type = "VMware"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows Registry)")
-                            return _cached_system_type
-                        elif 'virtualbox' in bios_vendor or 'innotek' in bios_vendor:
-                            _cached_system_type = "VirtualBox"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows Registry)")
-                            return _cached_system_type
-                        elif 'microsoft corporation' in system_manufacturer:
-                            _cached_system_type = "Hyper-V"
-                            print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows Registry)")
-                            return _cached_system_type
-                    finally:
-                        winreg.CloseKey(key)
-                except:
-                    pass
+                import wmi
+                c = wmi.WMI()
+                for computer in c.Win32_ComputerSystem():
+                    model = computer.Model.lower()
+                    manufacturer = computer.Manufacturer.lower()
                     
-            except Exception as e:
-                print(f"[WARN] Windows detection failed: {e}")
+                    if 'virtualbox' in model or 'virtualbox' in manufacturer:
+                        _cached_system_type = "VirtualBox"
+                        print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
+                        return _cached_system_type
+                    elif 'vmware' in model or 'vmware' in manufacturer:
+                        _cached_system_type = "VMware"
+                        print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
+                        return _cached_system_type
+                    elif 'virtual machine' in model or 'microsoft corporation' in manufacturer:
+                        _cached_system_type = "Hyper-V"
+                        print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
+                        return _cached_system_type
+                    elif 'parallels' in model or 'parallels' in manufacturer:
+                        _cached_system_type = "Parallels"
+                        print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
+                        return _cached_system_type
+                    elif 'qemu' in model or 'qemu' in manufacturer:
+                        _cached_system_type = "QEMU"
+                        print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
+                        return _cached_system_type
+                    elif 'bochs' in model or 'bochs' in manufacturer:
+                        _cached_system_type = "Bochs"
+                        print(f"[INFO] 检测到系统类型: {_cached_system_type} (Windows WMI)")
+                        return _cached_system_type
+            except:
                 pass
         
         # macOS检测（如果运行在macOS上）
@@ -619,21 +547,13 @@ def get_all_disk_usage():
         
         for partition in partitions:
             try:
-                # Windows和Linux的特殊文件系统类型处理
-                if platform.system() == 'Windows':
-                    # Windows特殊文件系统类型
-                    if partition.fstype in ['', 'cdfs', 'udf']:
-                        continue
-                    # 跳过网络驱动器和特殊设备
-                    if partition.device.startswith('\\\\') or len(partition.device) < 3:
-                        continue
-                else:
-                    # Linux/Unix特殊文件系统类型
-                    if partition.fstype in ['', 'squashfs', 'tmpfs', 'devtmpfs', 'proc', 'sysfs', 'devpts', 'cgroup', 'cgroup2', 'pstore', 'bpf', 'autofs']:
-                        continue
-                    # 跳过某些特殊的挂载点
-                    if partition.mountpoint in ['/dev', '/proc', '/sys', '/run', '/boot/efi', '/run/lock', '/run/shm', '/run/user']:
-                        continue
+                # 跳过某些特殊的文件系统类型
+                if partition.fstype in ['', 'squashfs', 'tmpfs', 'devtmpfs', 'proc', 'sysfs', 'devpts', 'cgroup', 'cgroup2', 'pstore', 'bpf', 'autofs']:
+                    continue
+                
+                # 跳过某些特殊的挂载点
+                if partition.mountpoint in ['/dev', '/proc', '/sys', '/run', '/boot/efi', '/run/lock', '/run/shm', '/run/user']:
+                    continue
                 
                 # 获取分区使用情况
                 disk_usage = psutil.disk_usage(partition.mountpoint)
@@ -673,9 +593,7 @@ def get_all_disk_usage():
         print(f"[Disk] Error getting disk usage: {e}")
         # 如果出错，回退到根分区
         try:
-            # Windows使用C:盘，Linux使用根目录
-            root_path = 'C:\\' if platform.system() == 'Windows' else '/'
-            disk = psutil.disk_usage(root_path)
+            disk = psutil.disk_usage('/')
             return {
                 'total_size': disk.total,
                 'total_used': disk.used,
@@ -754,7 +672,7 @@ def get_memory_info():
         }
 
 def get_cpu_info():
-    """获取CPU详细信息：型号、核心数、线程数"""
+    """获取CPU详细信息：型号、频率、核心数、虚拟化状态"""
     try:
         # 获取逻辑CPU数量（线程数）
         logical_cpus = psutil.cpu_count(logical=True)
@@ -766,17 +684,53 @@ def get_cpu_info():
             physical_cpus = logical_cpus
         
         cpu_model = "Unknown CPU"
+        cpu_frequency = ""
+        is_virtual = False
+        socket_count = 1
+        threads_per_core = 1
         
-        # 根据操作系统获取CPU型号
+        # 根据操作系统获取CPU详细信息
         if platform.system() == 'Linux':
             try:
+                # 从 /proc/cpuinfo 获取基本信息
                 with open('/proc/cpuinfo', 'r') as f:
-                    for line in f:
+                    content = f.read()
+                    for line in content.split('\n'):
                         if line.startswith('model name'):
                             cpu_model = line.split(':', 1)[1].strip()
-                            break
+                        elif line.startswith('flags') and 'hypervisor' in line:
+                            is_virtual = True
+                
+                # 尝试使用 lscpu 获取更详细信息
+                try:
+                    result = subprocess.run(['lscpu'], capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        lscpu_output = result.stdout
+                        for line in lscpu_output.split('\n'):
+                            line = line.strip()
+                            if line.startswith('Model name:'):
+                                cpu_model = line.split(':', 1)[1].strip()
+                            elif line.startswith('Hypervisor vendor:'):
+                                is_virtual = True
+                            elif line.startswith('Virtualization type:'):
+                                if 'full' in line.lower():
+                                    is_virtual = True
+                            elif line.startswith('Socket(s):'):
+                                try:
+                                    socket_count = int(line.split(':', 1)[1].strip())
+                                except:
+                                    pass
+                            elif line.startswith('Thread(s) per core:'):
+                                try:
+                                    threads_per_core = int(line.split(':', 1)[1].strip())
+                                except:
+                                    pass
+                except:
+                    pass
+                    
             except (FileNotFoundError, PermissionError):
                 pass
+                
         elif platform.system() == 'Windows':
             try:
                 # 尝试使用wmi模块
@@ -785,6 +739,14 @@ def get_cpu_info():
                 for processor in c.Win32_Processor():
                     cpu_model = processor.Name.strip()
                     break
+                    
+                # 检查是否在虚拟机中
+                for computer_system in c.Win32_ComputerSystem():
+                    if computer_system.Model and any(vm_indicator in computer_system.Model.lower() 
+                                                   for vm_indicator in ['virtual', 'vmware', 'virtualbox', 'hyper-v']):
+                        is_virtual = True
+                    break
+                    
             except ImportError:
                 try:
                     # 备用方法：使用注册表
@@ -795,29 +757,79 @@ def get_cpu_info():
                     winreg.CloseKey(key)
                 except:
                     pass
+                    
         elif platform.system() == 'Darwin':  # macOS
             try:
                 result = subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'], 
                                       capture_output=True, text=True, timeout=3)
                 if result.returncode == 0:
                     cpu_model = result.stdout.strip()
+                    
+                # 检查是否在虚拟机中
+                result = subprocess.run(['sysctl', '-n', 'machdep.cpu.features'], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0 and 'VMM' in result.stdout:
+                    is_virtual = True
             except:
                 pass
         
-        # 清理CPU型号字符串，移除多余空格和频率信息
+        # 处理CPU型号和频率
         if cpu_model != "Unknown CPU":
             # 移除多余空格
             cpu_model = ' '.join(cpu_model.split())
-            # 只移除频率信息（@ 后面的部分），保留完整的CPU型号
-            cpu_model = re.sub(r'\s+@\s*[\d.]+\s*GHz.*$', '', cpu_model)  # 移除频率信息
-            # 移除末尾的 "Processor" 但保留 "CPU" 和具体型号
-            cpu_model = re.sub(r'\s+Processor\s*$', '', cpu_model)
+            
+            # 提取频率信息（保留 @ 频率部分）
+            frequency_match = re.search(r'@\s*([\d.]+\s*GHz)', cpu_model)
+            if frequency_match:
+                cpu_frequency = f"@ {frequency_match.group(1)}"
+                # 保留完整的CPU型号（包含频率）
+                cpu_model_with_freq = cpu_model
+            else:
+                # 如果没有频率信息，尝试从其他地方获取
+                cpu_model_with_freq = cpu_model
+                cpu_frequency = ""
+        else:
+            cpu_model_with_freq = cpu_model
+            cpu_frequency = ""
+        
+        # 确定核心类型和数量
+        if is_virtual:
+            # 虚拟机：显示逻辑CPU数作为虚拟核心
+            if logical_cpus == 1:
+                core_description = "1 Virtual Core"
+            else:
+                core_description = f"{logical_cpus} Virtual Core"
+        else:
+            # 物理机：根据是否支持超线程来决定显示方式
+            if threads_per_core > 1 and physical_cpus != logical_cpus:
+                # 支持超线程的物理机，显示物理核心数
+                if physical_cpus == 1:
+                    core_description = "1 Physical Core"
+                else:
+                    core_description = f"{physical_cpus} Physical Core"
+            else:
+                # 不支持超线程或单核心，显示逻辑CPU数
+                if logical_cpus == 1:
+                    core_description = "1 Physical Core"
+                else:
+                    core_description = f"{logical_cpus} Physical Core"
+        
+        # 构建最终的信息字符串
+        # 格式：CPU型号 @ 频率 X Virtual/Physical Core
+        if cpu_frequency:
+            info_string = f"{cpu_model_with_freq} {core_description}"
+        else:
+            info_string = f"{cpu_model} {core_description}"
         
         return {
             'model': cpu_model,
             'cores': physical_cpus,
             'threads': logical_cpus,
-            'info_string': f"{cpu_model}({physical_cpus}c|{logical_cpus}t)"
+            'is_virtual': is_virtual,
+            'socket_count': socket_count,
+            'threads_per_core': threads_per_core,
+            'frequency': cpu_frequency,
+            'info_string': info_string
         }
         
     except Exception as e:
@@ -826,7 +838,11 @@ def get_cpu_info():
             'model': "Unknown CPU",
             'cores': 1,
             'threads': 1,
-            'info_string': "Unknown CPU(1c|1t)"
+            'is_virtual': False,
+            'socket_count': 1,
+            'threads_per_core': 1,
+            'frequency': "",
+            'info_string': "Unknown CPU 1 Core"
         }
 
 def get_uptime():
@@ -1027,13 +1043,8 @@ def perform_tcping(host, port):
                 'success': False
             }
         
-        # 根据操作系统选择tcping命令
-        if platform.system() == 'Windows':
-            # Windows使用tcping.exe或直接使用tcping命令
-            cmd = ['tcping', str(host), '-p', str(port), '-c', '1', '--report']
-        else:
-            # Linux/Unix使用tcping命令
-            cmd = ['tcping', str(host), '-p', str(port), '-c', '1', '--report']
+        # 使用Python版本的tcping，因为已经安装了
+        cmd = [os.path.expanduser('~/.local/bin/tcping'), str(host), '-p', str(port), '-c', '1', '--report']
         
         print(f"[TCPing] Executing: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
@@ -1198,10 +1209,6 @@ def collect_info():
         cpu = get_cpu_usage()
         print(f"[Data] CPU usage: {cpu}%")
         
-        # CPU详细信息
-        cpu_info = get_cpu_info()
-        print(f"[Data] CPU info: {cpu_info['info_string']}")
-        
         # 内存使用率（优化版本）
         memory_info = get_memory_info()
         ram = memory_info['percent']
@@ -1211,6 +1218,10 @@ def collect_info():
         disk_info = get_all_disk_usage()
         rom = int(disk_info['percent'])
         print(f"[Data] Disk usage: {rom}% ({disk_info['detail']}) - {disk_info['partitions_count']} partitions")
+        
+        # CPU信息
+        cpu_info = get_cpu_info()
+        print(f"[Data] CPU info: {cpu_info['info_string']}")
         
         # 详细信息
         detail = {
@@ -1270,7 +1281,7 @@ def collect_info():
                 'swap': '0 MiB / 0 MiB',
                 'disk': '0 GiB / 0 GiB',
                 'partitions_count': 0,
-                'cpu_info': 'Unknown CPU(1c|1t)'
+                'cpu_info': 'Unknown CPU(1核/1线程)'
             }
         }
 
