@@ -247,8 +247,8 @@ echo Node: ${NodeName}
 echo.
 
 REM 先停止现有进程
-taskkill /f /im python.exe /fi "COMMANDLINE eq *client.py*" 2>nul
-taskkill /f /im pythonw.exe /fi "COMMANDLINE eq *client.py*" 2>nul
+taskkill /f /im python.exe 2>nul
+taskkill /f /im pythonw.exe 2>nul
 
 REM 启动新进程
 start /min cmd /c "venv\Scripts\pythonw.exe client.py"
@@ -268,42 +268,64 @@ echo.
 "@
     Set-Content -Path "start_background.bat" -Value $startBackgroundScript -Encoding UTF8
 
-    # 停止脚本 - 改进版本，使用更可靠的进程检测
+    # 停止脚本 - 修复版本，使用简单直接的方法
     $stopScript = @"
 @echo off
-echo Stopping B-Server Client...
+echo ==========================================
+echo        B-Server Client Stop Script
+echo ==========================================
 echo.
 
-echo Stopping foreground Python processes...
-for /f "tokens=2" %%i in ('tasklist /fi "IMAGENAME eq python.exe" /fo csv ^| find "python.exe"') do (
-    echo Killing process %%i
-    taskkill /f /pid %%i 2>nul
+echo [1] Stopping B-Server Client processes...
+
+echo    - Attempting to stop python.exe processes...
+taskkill /f /im python.exe >nul 2>&1
+if %errorlevel%==0 (
+    echo      ✓ python.exe processes stopped
+) else (
+    echo      ○ No python.exe processes found
 )
 
-echo Stopping background Python processes...
-for /f "tokens=2" %%i in ('tasklist /fi "IMAGENAME eq pythonw.exe" /fo csv ^| find "pythonw.exe"') do (
-    echo Killing process %%i
-    taskkill /f /pid %%i 2>nul
+echo    - Attempting to stop pythonw.exe processes...
+taskkill /f /im pythonw.exe >nul 2>&1
+if %errorlevel%==0 (
+    echo      ✓ pythonw.exe processes stopped
+) else (
+    echo      ○ No pythonw.exe processes found
 )
 
 echo.
-echo Checking for remaining processes...
+echo [2] Verifying processes are stopped...
+
 tasklist /fi "IMAGENAME eq python.exe" 2>nul | find "python.exe" >nul
 if %errorlevel%==0 (
-    echo [WARNING] Some python.exe processes are still running
+    echo    ⚠ WARNING: Some python.exe processes are still running
+    echo    Active python.exe processes:
+    tasklist /fi "IMAGENAME eq python.exe" 2>nul
 ) else (
-    echo [OK] No python.exe processes found
+    echo    ✓ No python.exe processes found
 )
 
 tasklist /fi "IMAGENAME eq pythonw.exe" 2>nul | find "pythonw.exe" >nul
 if %errorlevel%==0 (
-    echo [WARNING] Some pythonw.exe processes are still running
+    echo    ⚠ WARNING: Some pythonw.exe processes are still running
+    echo    Active pythonw.exe processes:
+    tasklist /fi "IMAGENAME eq pythonw.exe" 2>nul
 ) else (
-    echo [OK] No pythonw.exe processes found
+    echo    ✓ No pythonw.exe processes found
 )
 
 echo.
-echo B-Server Client stop completed
+echo [3] Additional stop methods:
+echo    If processes are still running, try these commands manually:
+echo    • taskkill /f /im python.exe
+echo    • taskkill /f /im pythonw.exe
+echo    • Use Task Manager to end processes manually
+
+echo.
+echo ==========================================
+echo Stop script completed!
+echo ==========================================
 pause
 "@
     Set-Content -Path "stop.bat" -Value $stopScript -Encoding UTF8
@@ -405,8 +427,8 @@ pause
 @echo off
 cd /d "%~dp0"
 echo Stopping client...
-taskkill /f /im python.exe /fi "COMMANDLINE eq *client.py*" 2>nul
-taskkill /f /im pythonw.exe /fi "COMMANDLINE eq *client.py*" 2>nul
+taskkill /f /im python.exe 2>nul
+taskkill /f /im pythonw.exe 2>nul
 
 echo Downloading latest client...
 powershell -Command "Invoke-WebRequest -Uri '{0}' -OutFile 'client.py.new' -UseBasicParsing"
