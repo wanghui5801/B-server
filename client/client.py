@@ -1148,6 +1148,14 @@ def python_tcping(host, port, timeout=5):
         sock.close()
         
         if result == 0:
+            # 延迟高于500ms视为失败
+            if latency > 500:
+                return {
+                    'host': host,
+                    'port': port,
+                    'latency': None,
+                    'success': False
+                }
             return {
                 'host': host,
                 'port': port,
@@ -1253,6 +1261,14 @@ def perform_tcping(host, port):
                 
                 if result.result:
                     avg_time = result.result[0].time if result.result[0].time else 1.0
+                    # 延迟高于500ms视为失败
+                    if avg_time > 500:
+                        return {
+                            'host': host,
+                            'port': port,
+                            'latency': None,
+                            'success': False
+                        }
                     return {
                         'host': host,
                         'port': port,
@@ -1323,6 +1339,15 @@ def perform_tcping(host, port):
                     print(f"[TCPing Debug] Extracted latency: {latency}")
                     
                     if latency is not None and latency > 0:
+                        # 延迟高于500ms视为失败
+                        if latency > 500:
+                            print(f"[TCPing] ✗ High latency (>500ms): {host}:{port} - {latency}ms")
+                            return {
+                                'host': host,
+                                'port': port,
+                                'latency': None,
+                                'success': False
+                            }
                         print(f"[TCPing] ✓ Success: {host}:{port} - {latency}ms")
                         return {
                             'host': host,
