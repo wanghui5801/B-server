@@ -209,7 +209,7 @@ pause
 "@
     Set-Content -Path "status.bat" -Value $statusScript -Encoding UTF8
 
-    # 更新脚本
+    # 更新脚本 - 使用字符串格式化避免变量插值问题
     $updateScript = @"
 @echo off
 cd /d "%~dp0"
@@ -218,11 +218,11 @@ taskkill /f /im python.exe /fi "COMMANDLINE eq *client.py*" 2>nul
 taskkill /f /im pythonw.exe /fi "COMMANDLINE eq *client.py*" 2>nul
 
 echo Downloading latest client...
-powershell -Command "Invoke-WebRequest -Uri '$ClientURL' -OutFile 'client.py.new' -UseBasicParsing"
+powershell -Command "Invoke-WebRequest -Uri '{0}' -OutFile 'client.py.new' -UseBasicParsing"
 
 if exist client.py.new (
     echo Updating configuration...
-    powershell -Command "(Get-Content 'client.py.new') -replace \"SERVER_URL = 'http://localhost:3001'\", \"SERVER_URL = 'http://$ServerIP:3001'\" -replace \"NODE_NAME = socket\.gethostname\(\)\", \"NODE_NAME = '$NodeName'\" | Set-Content 'client.py.new'"
+    powershell -Command "(Get-Content 'client.py.new') -replace \"SERVER_URL = 'http://localhost:3001'\", \"SERVER_URL = 'http://{1}:3001'\" -replace \"NODE_NAME = socket\.gethostname\(\)\", \"NODE_NAME = '{2}'\" | Set-Content 'client.py.new'"
     
     move client.py client.py.backup
     move client.py.new client.py
@@ -231,10 +231,10 @@ if exist client.py.new (
     echo Download failed
 )
 pause
-"@
+"@ -f $ClientURL, $ServerIP, $NodeName
     Set-Content -Path "update.bat" -Value $updateScript -Encoding UTF8
 
-    Write-ColorOutput "[SUCCESS] 管理脚本创建完成" "Green"
+    Write-ColorOutput "[SUCCESS] Management scripts created successfully" "Green"
 
     # 创建Windows服务脚本（可选）
     $serviceScript = @"
@@ -262,7 +262,8 @@ Write-Host "4. Run: .\nssm.exe start `$serviceName"
     # Test client configuration
     Write-ColorOutput "[INFO] Testing client configuration..." "Blue"
     try {
-        $testScript = @"
+        # Create test script dynamically to avoid variable interpolation issues
+        $testContent = @"
 import sys, os
 sys.path.insert(0, os.getcwd())
 try:
@@ -275,22 +276,22 @@ except ImportError as e:
 # Check configuration
 with open('client.py', 'r', encoding='utf-8') as f:
     content = f.read()
-    if 'http://$ServerIP:3001' in content:
+    if 'http://{0}:3001' in content:
         print('[SUCCESS] Server address configured correctly')
     else:
         print('[ERROR] Server address configuration error')
         sys.exit(1)
     
-    if "NODE_NAME = '$NodeName'" in content:
+    if "NODE_NAME = '{1}'" in content:
         print('[SUCCESS] Node name configured correctly')
     else:
         print('[ERROR] Node name configuration error')
         sys.exit(1)
 
 print('[SUCCESS] Client configuration test passed')
-"@
+"@ -f $ServerIP, $NodeName
 
-        $testResult = & ".\venv\Scripts\python.exe" -c $testScript
+        $testResult = & ".\venv\Scripts\python.exe" -c $testContent
 
         if ($LASTEXITCODE -eq 0) {
             Write-ColorOutput "[SUCCESS] Client configuration test passed" "Green"
@@ -301,7 +302,7 @@ print('[SUCCESS] Client configuration test passed')
     catch {
         Write-ColorOutput "[ERROR] Client configuration test failed" "Red"
         Write-ColorOutput "[INFO] Continuing with installation..." "Yellow"
-        # 不要因为测试失败就退出，继续安装过程
+        # Don't exit due to test failure, continue installation process
     }
 
     # Display installation completion information
