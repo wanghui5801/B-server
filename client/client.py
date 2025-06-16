@@ -9,6 +9,7 @@ import requests
 import subprocess
 import re
 import ipaddress
+import shutil
 from datetime import datetime
 
 # 可根据实际情况修改
@@ -29,6 +30,9 @@ sio = socketio.Client()
 
 # 缓存系统类型检测结果
 _cached_system_type = None
+
+# 缓存CPU信息（Windows特有问题的解决方案）
+_cached_cpu_info = None
 
 def detect_system_type():
     """智能检测系统类型"""
@@ -672,8 +676,15 @@ def get_memory_info():
         }
 
 def get_cpu_info():
-    """获取CPU详细信息：型号、频率、核心数、虚拟化状态"""
+    """获取CPU详细信息：型号、频率、核心数、虚拟化状态 - 优化的Windows兼容版本"""
+    global _cached_cpu_info
+    
     try:
+        # 对于Windows，如果已经缓存了CPU信息，直接返回
+        # 这是因为Windows的WMI在多线程环境中容易出问题
+        if platform.system() == 'Windows' and _cached_cpu_info is not None:
+            return _cached_cpu_info
+        
         # 获取逻辑CPU数量（线程数）
         logical_cpus = psutil.cpu_count(logical=True)
         # 获取物理CPU核心数
@@ -732,30 +743,57 @@ def get_cpu_info():
                 pass
                 
         elif platform.system() == 'Windows':
+            # Windows平台：使用多种方法检测，并缓存结果
+            wmi_success = False
+            
             try:
-                # 尝试使用wmi模块
+                # 尝试使用wmi模块，添加COM初始化
                 import wmi
+                
+                # 初始化COM接口（修复多线程问题）
+                try:
+                    import pythoncom
+                    pythoncom.CoInitialize()
+                except:
+                    pass
+                
                 c = wmi.WMI()
                 for processor in c.Win32_Processor():
                     cpu_model = processor.Name.strip()
+                    wmi_success = True
                     break
                     
                 # 检查是否在虚拟机中
-                for computer_system in c.Win32_ComputerSystem():
-                    if computer_system.Model and any(vm_indicator in computer_system.Model.lower() 
-                                                   for vm_indicator in ['virtual', 'vmware', 'virtualbox', 'hyper-v']):
-                        is_virtual = True
-                    break
-                    
-            except ImportError:
+                if wmi_success:
+                    try:
+                        for computer_system in c.Win32_ComputerSystem():
+                            if computer_system.Model and any(vm_indicator in computer_system.Model.lower() 
+                                                           for vm_indicator in ['virtual', 'vmware', 'virtualbox', 'hyper-v']):
+                                is_virtual = True
+                            break
+                    except:
+                        pass
+                
+                # 清理COM接口
                 try:
-                    # 备用方法：使用注册表
+                    pythoncom.CoUninitialize()
+                except:
+                    pass
+                    
+            except (ImportError, Exception) as e:
+                print(f"[CPU] WMI detection failed: {e}, trying registry method...")
+                
+            # 如果WMI失败，使用注册表方法作为备选
+            if not wmi_success:
+                try:
                     import winreg
                     key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
                                        r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
                     cpu_model = winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
                     winreg.CloseKey(key)
-                except:
+                    print(f"[CPU] Registry detection successful: {cpu_model}")
+                except Exception as e:
+                    print(f"[CPU] Registry detection failed: {e}")
                     pass
                     
         elif platform.system() == 'Darwin':  # macOS
@@ -821,7 +859,7 @@ def get_cpu_info():
         else:
             info_string = f"{cpu_model} {core_description}"
         
-        return {
+        cpu_info_result = {
             'model': cpu_model,
             'cores': physical_cpus,
             'threads': logical_cpus,
@@ -832,9 +870,23 @@ def get_cpu_info():
             'info_string': info_string
         }
         
+        # 对于Windows，缓存CPU信息以避免后续的WMI问题
+        if platform.system() == 'Windows':
+            _cached_cpu_info = cpu_info_result
+            print(f"[CPU] Windows CPU info cached: {info_string}")
+        
+        return cpu_info_result
+        
     except Exception as e:
         print(f"[CPU] Error getting CPU info: {e}")
-        return {
+        
+        # 如果是Windows且有缓存，返回缓存的信息
+        if platform.system() == 'Windows' and _cached_cpu_info is not None:
+            print(f"[CPU] Using cached CPU info due to error")
+            return _cached_cpu_info
+        
+        # 否则返回默认信息
+        fallback_result = {
             'model': "Unknown CPU",
             'cores': 1,
             'threads': 1,
@@ -844,6 +896,12 @@ def get_cpu_info():
             'frequency': "",
             'info_string': "Unknown CPU 1 Core"
         }
+        
+        # 对于Windows，也缓存这个fallback结果，避免重复尝试
+        if platform.system() == 'Windows':
+            _cached_cpu_info = fallback_result
+        
+        return fallback_result
 
 def get_uptime():
     """获取系统运行时间（天）"""
@@ -1030,8 +1088,79 @@ def get_ip_addresses():
         'ipv6': ipv6                         # 原始IPv6地址（可能为None）
     }
 
+def find_tcping_executable():
+    """查找tcping可执行文件的位置 - 改进的跨平台版本"""
+    
+    # 首先尝试使用 shutil.which() 在PATH中查找
+    tcping_path = shutil.which('tcping')
+    if tcping_path:
+        print(f"[TCPing] Found tcping in PATH: {tcping_path}")
+        return tcping_path
+    
+    # 如果在PATH中找不到，尝试常见位置
+    possible_paths = []
+    
+    if platform.system() == 'Windows':
+        # Windows可能的路径
+        possible_paths = [
+            # 用户本地安装位置
+            os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tcping.exe'),
+            os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tcping'),
+        ]
+        
+        # 尝试找到Python安装目录的Scripts文件夹
+        python_paths = []
+        for python_cmd in ['python', 'python3', 'py']:
+            python_exe = shutil.which(python_cmd)
+            if python_exe:
+                python_dir = os.path.dirname(python_exe)
+                scripts_dir = os.path.join(python_dir, 'Scripts')
+                if os.path.isdir(scripts_dir):
+                    python_paths.extend([
+                        os.path.join(scripts_dir, 'tcping.exe'),
+                        os.path.join(scripts_dir, 'tcping'),
+                    ])
+        
+        possible_paths.extend(python_paths)
+        
+        # 添加更多Windows常见位置
+        possible_paths.extend([
+            # AppData位置
+            os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'Programs', 'Python', 'Scripts', 'tcping.exe'),
+            os.path.join(os.path.expanduser('~'), 'AppData', 'Roaming', 'Python', 'Scripts', 'tcping.exe'),
+            # 当前Python环境的Scripts目录
+            os.path.join(os.path.dirname(shutil.which('python') or ''), 'Scripts', 'tcping.exe'),
+            os.path.join(os.path.dirname(shutil.which('python') or ''), 'Scripts', 'tcping'),
+        ])
+    else:
+        # Unix/Linux可能的路径
+        possible_paths = [
+            os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tcping'),
+            '/usr/local/bin/tcping',
+            '/usr/bin/tcping',
+            '/opt/homebrew/bin/tcping',  # macOS Homebrew
+        ]
+    
+    # 测试每个可能的路径
+    for path in possible_paths:
+        if path and os.path.isfile(path) and os.access(path, os.X_OK):
+            print(f"[TCPing] Found tcping at: {path}")
+            return path
+    
+    # 最后尝试直接使用 'tcping' 命令（也许在PATH中但shutil.which没找到）
+    try:
+        result = subprocess.run(['tcping', '--help'], capture_output=True, timeout=3)
+        if result.returncode in [0, 1] or b'usage' in result.stdout.lower() or b'usage' in result.stderr.lower():
+            print(f"[TCPing] Using direct 'tcping' command")
+            return 'tcping'
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+        pass
+    
+    print(f"[TCPing] tcping executable not found in any common locations")
+    return None
+
 def perform_tcping(host, port):
-    """执行tcping命令并返回结果"""
+    """执行tcping命令并返回结果 - 增强的跨平台版本"""
     try:
         # 验证输入参数
         if not host or not port:
@@ -1043,8 +1172,21 @@ def perform_tcping(host, port):
                 'success': False
             }
         
-        # 使用Python版本的tcping，因为已经安装了
-        cmd = [os.path.expanduser('~/.local/bin/tcping'), str(host), '-p', str(port), '-c', '1', '--report']
+        # 查找tcping可执行文件
+        tcping_cmd = find_tcping_executable()
+        if not tcping_cmd:
+            print(f"[TCPing] ✗ tcping executable not found")
+            print(f"[TCPing] ✗ Please install tcping: pip install tcping")
+            print(f"[TCPing] ✗ Or ensure tcping is in your PATH")
+            return {
+                'host': host,
+                'port': port,
+                'latency': None,
+                'success': False
+            }
+        
+        # 构建命令
+        cmd = [tcping_cmd, str(host), '-p', str(port), '-c', '1', '--report']
         
         print(f"[TCPing] Executing: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
