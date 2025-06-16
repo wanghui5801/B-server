@@ -11,6 +11,14 @@ param(
     [string]$NodeName = $env:COMPUTERNAME
 )
 
+# 设置控制台编码为UTF-8
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch {
+    # 忽略编码设置错误
+}
+
 # 颜色输出函数
 function Write-ColorOutput {
     param(
@@ -328,22 +336,25 @@ print('✓ 客户端配置测试通过')
     Write-ColorOutput "[INFO] 安装完成！" "Green"
 }
 
-# 主逻辑：处理直接运行和一键命令调用
-if ($PSBoundParameters.Count -eq 0 -and $args.Count -eq 0) {
-    # 没有参数时显示帮助
-    Write-ColorOutput "[ERROR] 缺少必需的参数" "Red"
-    Write-ColorOutput "[INFO] 使用方法:" "Blue"
-    Write-Host "  本地运行: .\install_client.ps1 -ServerIP '<服务器IP>' -NodeName '<节点名称>'"
-    Write-Host "  一键命令: powershell -ExecutionPolicy Bypass -Command `"iwr -Uri 'https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/install_client.ps1' -UseBasicParsing | iex; Install-BServerClient -ServerIP '<服务器IP>' -NodeName '<节点名称>'`""
-    Write-Host ""
-    Write-ColorOutput "[INFO] 示例:" "Blue"
-    Write-Host "  .\install_client.ps1 -ServerIP '192.168.1.100' -NodeName 'MyServer'"
-    Write-Host "  powershell -ExecutionPolicy Bypass -Command `"iwr -Uri 'https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/install_client.ps1' -UseBasicParsing | iex; Install-BServerClient -ServerIP '192.168.1.100' -NodeName 'MyServer'`""
-    exit 1
-} elseif ($ServerIP) {
-    # 如果通过参数调用（本地运行脚本）
-    Install-BServerClient -ServerIP $ServerIP -NodeName $NodeName
+# 主逻辑：处理直接运行脚本的情况
+# 只有在直接运行脚本文件（而不是通过iex执行）时才检查参数
+if ($MyInvocation.InvocationName -match '\.ps1$') {
+    # 这是直接运行脚本文件的情况
+    if (-not $ServerIP -or -not $NodeName) {
+        Write-ColorOutput "[ERROR] Missing required parameters" "Red"
+        Write-ColorOutput "[INFO] Usage:" "Blue"
+        Write-Host "  Local run: .\install_client.ps1 -ServerIP '<ServerIP>' -NodeName '<NodeName>'"
+        Write-Host "  One-click: powershell -ExecutionPolicy Bypass -Command `"iwr -Uri 'https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/install_client.ps1' -UseBasicParsing | iex; Install-BServerClient -ServerIP '<ServerIP>' -NodeName '<NodeName>'`""
+        Write-Host ""
+        Write-ColorOutput "[INFO] Examples:" "Blue"
+        Write-Host "  .\install_client.ps1 -ServerIP '192.168.1.100' -NodeName 'MyServer'"
+        Write-Host "  powershell -ExecutionPolicy Bypass -Command `"iwr -Uri 'https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/install_client.ps1' -UseBasicParsing | iex; Install-BServerClient -ServerIP '192.168.1.100' -NodeName 'MyServer'`""
+        exit 1
+    } else {
+        # 直接运行脚本且参数正确，调用安装函数
+        Install-BServerClient -ServerIP $ServerIP -NodeName $NodeName
+    }
 }
 
-# 注意：一键命令会下载脚本并执行，然后调用 Install-BServerClient 函数
-# 这种情况下不会进入上面的条件分支，函数会在一键命令中被直接调用 
+# 注意：一键命令通过iex执行脚本内容，然后直接调用 Install-BServerClient 函数
+# 这种情况下不会进入上面的条件分支 

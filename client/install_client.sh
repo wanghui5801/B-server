@@ -115,7 +115,7 @@ print('NODE_NAME updated to: $NODE_NAME')
 "
 
 # 修改tcping路径为直接使用tcping命令
-# sed -i "s|os.path.expanduser('~/.local/bin/tcping')|'tcping'|g" client.py
+sed -i "s|os.path.expanduser('~/.local/bin/tcping')|'tcping'|g" client.py
 
 log_success "客户端配置修改完成"
 
@@ -330,7 +330,7 @@ with open('$CLIENT_FILE', 'r') as f:
         print('✗ 节点名称配置错误')
         sys.exit(1)
         
-    if \"cmd = ['tcping'\" in content:
+    if \"'tcping'\" in content:
         print('✓ tcping路径配置正确')
     else:
         print('✗ tcping路径配置错误')
