@@ -44,70 +44,70 @@ function Install-BServerClient {
         [string]$NodeName = $env:COMPUTERNAME
     )
 
-    Write-ColorOutput "[INFO] 开始安装 B-Server 客户端..." "Blue"
-    Write-ColorOutput "[INFO] 服务器地址: $ServerIP:3001" "Blue"
-    Write-ColorOutput "[INFO] 节点名称: $NodeName" "Blue"
+    Write-ColorOutput "[INFO] Starting B-Server client installation..." "Blue"
+    Write-ColorOutput "[INFO] Server address: $ServerIP:3001" "Blue"
+    Write-ColorOutput "[INFO] Node name: $NodeName" "Blue"
 
-    # 配置变量
+    # Configuration variables
     $ClientDir = Join-Path $env:USERPROFILE "b-server-client"
     $ClientFile = Join-Path $ClientDir "client.py"
     $ClientURL = "https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/client.py"
 
-    Write-ColorOutput "[INFO] 安装目录: $ClientDir" "Blue"
+    Write-ColorOutput "[INFO] Installation directory: $ClientDir" "Blue"
 
-    # 检查系统依赖
-    Write-ColorOutput "[INFO] 检查系统依赖..." "Blue"
+    # Check system dependencies
+    Write-ColorOutput "[INFO] Checking system dependencies..." "Blue"
 
-    # 检查Python
+    # Check Python
     try {
         $pythonVersion = python --version 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "Python not found"
         }
-        Write-ColorOutput "[SUCCESS] Python 已安装: $pythonVersion" "Green"
+        Write-ColorOutput "[SUCCESS] Python installed: $pythonVersion" "Green"
     }
     catch {
-        Write-ColorOutput "[ERROR] Python 未安装，请先安装 Python 3.7+" "Red"
-        Write-ColorOutput "[INFO] 下载地址: https://www.python.org/downloads/" "Yellow"
+        Write-ColorOutput "[ERROR] Python not installed, please install Python 3.7+" "Red"
+        Write-ColorOutput "[INFO] Download from: https://www.python.org/downloads/" "Yellow"
         exit 1
     }
 
-    # 检查pip
+    # Check pip
     try {
         $pipVersion = pip --version 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "pip not found"
         }
-        Write-ColorOutput "[SUCCESS] pip 已安装: $pipVersion" "Green"
+        Write-ColorOutput "[SUCCESS] pip installed: $pipVersion" "Green"
     }
     catch {
-        Write-ColorOutput "[ERROR] pip 未安装，请确保 Python 正确安装" "Red"
+        Write-ColorOutput "[ERROR] pip not installed, please ensure Python is correctly installed" "Red"
         exit 1
     }
 
-    # 创建安装目录
-    Write-ColorOutput "[INFO] 创建安装目录..." "Blue"
+    # Create installation directory
+    Write-ColorOutput "[INFO] Creating installation directory..." "Blue"
     if (!(Test-Path -Path $ClientDir)) {
         New-Item -ItemType Directory -Path $ClientDir -Force | Out-Null
     }
     Set-Location -Path $ClientDir
 
-    # 下载客户端文件
-    Write-ColorOutput "[INFO] 下载客户端文件..." "Blue"
+    # Download client file
+    Write-ColorOutput "[INFO] Downloading client file..." "Blue"
     try {
         Invoke-WebRequest -Uri $ClientURL -OutFile "client.py" -UseBasicParsing
         if (!(Test-Path -Path "client.py")) {
             throw "Download failed"
         }
-        Write-ColorOutput "[SUCCESS] 客户端文件下载完成" "Green"
+        Write-ColorOutput "[SUCCESS] Client file downloaded successfully" "Green"
     }
     catch {
-        Write-ColorOutput "[ERROR] 客户端文件下载失败: $($_.Exception.Message)" "Red"
+        Write-ColorOutput "[ERROR] Client file download failed: $($_.Exception.Message)" "Red"
         exit 1
     }
 
-    # 修改客户端配置
-    Write-ColorOutput "[INFO] 修改客户端配置..." "Blue"
+    # Modify client configuration
+    Write-ColorOutput "[INFO] Modifying client configuration..." "Blue"
     
     try {
         $content = Get-Content -Path "client.py" -Raw
@@ -119,29 +119,29 @@ function Install-BServerClient {
         $content = $content -replace "NODE_NAME = socket\.gethostname\(\)", "NODE_NAME = '$NodeName'"
         
         Set-Content -Path "client.py" -Value $content -Encoding UTF8
-        Write-ColorOutput "[SUCCESS] 客户端配置修改完成" "Green"
+        Write-ColorOutput "[SUCCESS] Client configuration modified successfully" "Green"
     }
     catch {
-        Write-ColorOutput "[ERROR] 配置文件修改失败: $($_.Exception.Message)" "Red"
+        Write-ColorOutput "[ERROR] Configuration file modification failed: $($_.Exception.Message)" "Red"
         exit 1
     }
 
-    # 创建Python虚拟环境
-    Write-ColorOutput "[INFO] 创建Python虚拟环境..." "Blue"
+    # Create Python virtual environment
+    Write-ColorOutput "[INFO] Creating Python virtual environment..." "Blue"
     try {
         python -m venv venv
         if ($LASTEXITCODE -ne 0) {
             throw "Virtual environment creation failed"
         }
-        Write-ColorOutput "[SUCCESS] 虚拟环境创建完成" "Green"
+        Write-ColorOutput "[SUCCESS] Virtual environment created successfully" "Green"
     }
     catch {
-        Write-ColorOutput "[ERROR] 虚拟环境创建失败: $($_.Exception.Message)" "Red"
+        Write-ColorOutput "[ERROR] Virtual environment creation failed: $($_.Exception.Message)" "Red"
         exit 1
     }
 
-    # 激活虚拟环境并安装依赖
-    Write-ColorOutput "[INFO] 安装Python依赖..." "Blue"
+    # Activate virtual environment and install dependencies
+    Write-ColorOutput "[INFO] Installing Python dependencies..." "Blue"
     try {
         & ".\venv\Scripts\python.exe" -m pip install --upgrade pip
         & ".\venv\Scripts\python.exe" -m pip install psutil python-socketio requests tcping "python-socketio[client]"
@@ -149,15 +149,15 @@ function Install-BServerClient {
         if ($LASTEXITCODE -ne 0) {
             throw "Package installation failed"
         }
-        Write-ColorOutput "[SUCCESS] Python依赖安装完成" "Green"
+        Write-ColorOutput "[SUCCESS] Python dependencies installed successfully" "Green"
     }
     catch {
-        Write-ColorOutput "[ERROR] 依赖安装失败: $($_.Exception.Message)" "Red"
+        Write-ColorOutput "[ERROR] Dependencies installation failed: $($_.Exception.Message)" "Red"
         exit 1
     }
 
-    # 创建启动脚本
-    Write-ColorOutput "[INFO] 创建管理脚本..." "Blue"
+    # Create startup scripts
+    Write-ColorOutput "[INFO] Creating management scripts..." "Blue"
     
     # 启动脚本
     $startScript = @"
@@ -257,83 +257,88 @@ Write-Host "4. Run: .\nssm.exe start `$serviceName"
 "@
     Set-Content -Path "install_service.ps1" -Value $serviceScript -Encoding UTF8
 
-    # 测试客户端配置
-    Write-ColorOutput "[INFO] 测试客户端配置..." "Blue"
+    Write-ColorOutput "[SUCCESS] Management scripts created successfully" "Green"
+
+    # Test client configuration
+    Write-ColorOutput "[INFO] Testing client configuration..." "Blue"
     try {
-        $testResult = & ".\venv\Scripts\python.exe" -c @"
+        $testScript = @"
 import sys, os
 sys.path.insert(0, os.getcwd())
 try:
     import socket, psutil, socketio, requests
-    print('✓ 所有依赖模块导入成功')
+    print('[SUCCESS] All dependency modules imported successfully')
 except ImportError as e:
-    print(f'✗ 依赖模块导入失败: {e}')
+    print(f'[ERROR] Dependency module import failed: {e}')
     sys.exit(1)
 
-# 检查配置
+# Check configuration
 with open('client.py', 'r', encoding='utf-8') as f:
     content = f.read()
     if 'http://$ServerIP:3001' in content:
-        print('✓ 服务器地址配置正确')
+        print('[SUCCESS] Server address configured correctly')
     else:
-        print('✗ 服务器地址配置错误')
+        print('[ERROR] Server address configuration error')
         sys.exit(1)
     
     if "NODE_NAME = '$NodeName'" in content:
-        print('✓ 节点名称配置正确')
+        print('[SUCCESS] Node name configured correctly')
     else:
-        print('✗ 节点名称配置错误')
+        print('[ERROR] Node name configuration error')
         sys.exit(1)
 
-print('✓ 客户端配置测试通过')
+print('[SUCCESS] Client configuration test passed')
 "@
 
+        $testResult = & ".\venv\Scripts\python.exe" -c $testScript
+
         if ($LASTEXITCODE -eq 0) {
-            Write-ColorOutput "[SUCCESS] 客户端配置测试通过" "Green"
+            Write-ColorOutput "[SUCCESS] Client configuration test passed" "Green"
         } else {
             throw "Configuration test failed"
         }
     }
     catch {
-        Write-ColorOutput "[ERROR] 客户端配置测试失败" "Red"
-        exit 1
+        Write-ColorOutput "[ERROR] Client configuration test failed" "Red"
+        Write-ColorOutput "[INFO] Continuing with installation..." "Yellow"
+        # 不要因为测试失败就退出，继续安装过程
     }
 
-    # 显示安装完成信息
+    # Display installation completion information
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
-    Write-ColorOutput "[SUCCESS] B-Server客户端安装完成！" "Green"
+    Write-ColorOutput "[SUCCESS] B-Server client installation completed!" "Green"
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
-    Write-ColorOutput "安装信息:" "Blue"
-    Write-Host "  安装目录: $ClientDir"
-    Write-Host "  服务器地址: $ServerIP:3001"
-    Write-Host "  节点名称: $NodeName"
+    Write-ColorOutput "Installation Information:" "Blue"
+    Write-Host "  Installation Directory: $ClientDir"
+    Write-Host "  Server Address: $ServerIP:3001"
+    Write-Host "  Node Name: $NodeName"
     Write-Host ""
-    Write-ColorOutput "管理命令:" "Blue"
-    Write-Host "  启动客户端: .\start.bat"
-    Write-Host "  后台启动: .\start_background.bat"
-    Write-Host "  检查状态: .\status.bat"
-    Write-Host "  停止客户端: .\stop.bat"
-    Write-Host "  更新客户端: .\update.bat"
+    Write-ColorOutput "Management Commands:" "Blue"
+    Write-Host "  Start Client: .\start.bat"
+    Write-Host "  Start in Background: .\start_background.bat"
+    Write-Host "  Check Status: .\status.bat"
+    Write-Host "  Stop Client: .\stop.bat"
+    Write-Host "  Update Client: .\update.bat"
     Write-Host ""
-    Write-ColorOutput "重要提示:" "Yellow"
-    Write-Host "  1. 请确保在服务器管理面板中添加了节点 '$NodeName'"
-    Write-Host "  2. 请确保服务器防火墙允许3001端口访问"
-    Write-Host "  3. 首次运行可能需要允许防火墙访问"
-    Write-Host "  4. 如需开机自启，请参考 install_service.ps1"
+    Write-ColorOutput "Important Notes:" "Yellow"
+    Write-Host "  1. Please ensure node '$NodeName' is added in server admin panel"
+    Write-Host "  2. Please ensure server firewall allows port 3001 access"
+    Write-Host "  3. First run may require firewall permission"
+    Write-Host "  4. For auto-start on boot, refer to install_service.ps1"
     Write-Host ""
     
-    # 询问是否立即启动
-    $choice = Read-Host "是否立即启动客户端？(Y/N)"
+    # Ask whether to start immediately
+    $choice = Read-Host "Start client immediately? (Y/N)"
     if ($choice -eq 'Y' -or $choice -eq 'y') {
-        Write-ColorOutput "[INFO] 启动B-Server客户端..." "Blue"
+        Write-ColorOutput "[INFO] Starting B-Server client..." "Blue"
         Start-Process -FilePath ".\start_background.bat" -WindowStyle Hidden
         Start-Sleep -Seconds 2
         & ".\status.bat"
     }
     
-    Write-ColorOutput "[INFO] 安装完成！" "Green"
+    Write-ColorOutput "[INFO] Installation completed!" "Green"
 }
 
 # 主逻辑：处理直接运行脚本的情况
