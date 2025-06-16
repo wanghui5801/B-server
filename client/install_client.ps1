@@ -1,8 +1,10 @@
 # B-Server 客户端 Windows 安装脚本
-# 使用方法: Install-BServerClient -ServerIP "192.168.1.100" -NodeName "MyServer"
+# 使用方法: 
+# 方法1(推荐): powershell -ExecutionPolicy Bypass -Command "iwr -Uri 'https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/install_client.ps1' -UseBasicParsing | iex; Install-BServerClient -ServerIP '192.168.1.100' -NodeName 'MyServer'"
+# 方法2: .\install_client.ps1 -ServerIP "192.168.1.100" -NodeName "MyServer"
 
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [string]$ServerIP,
     
     [Parameter(Mandatory=$false)]
@@ -108,9 +110,6 @@ function Install-BServerClient {
         # 修改NODE_NAME
         $content = $content -replace "NODE_NAME = socket\.gethostname\(\)", "NODE_NAME = '$NodeName'"
         
-        # 修改tcping路径（Windows使用tcping.exe）
-        # $content = $content -replace "os\.path\.expanduser\('~/.local/bin/tcping'\)", "'tcping'"
-        
         Set-Content -Path "client.py" -Value $content -Encoding UTF8
         Write-ColorOutput "[SUCCESS] 客户端配置修改完成" "Green"
     }
@@ -215,7 +214,7 @@ powershell -Command "Invoke-WebRequest -Uri '$ClientURL' -OutFile 'client.py.new
 
 if exist client.py.new (
     echo Updating configuration...
-    powershell -Command "(Get-Content 'client.py.new') -replace \"SERVER_URL = 'http://localhost:3001'\", \"SERVER_URL = 'http://$ServerIP:3001'\" -replace \"NODE_NAME = socket\.gethostname\(\)\", \"NODE_NAME = '$NodeName'\" -replace \"os\.path\.expanduser\('~/.local/bin/tcping'\)\", \"'tcping'\" | Set-Content 'client.py.new'"
+    powershell -Command "(Get-Content 'client.py.new') -replace \"SERVER_URL = 'http://localhost:3001'\", \"SERVER_URL = 'http://$ServerIP:3001'\" -replace \"NODE_NAME = socket\.gethostname\(\)\", \"NODE_NAME = '$NodeName'\" | Set-Content 'client.py.new'"
     
     move client.py client.py.backup
     move client.py.new client.py
@@ -329,13 +328,22 @@ print('✓ 客户端配置测试通过')
     Write-ColorOutput "[INFO] 安装完成！" "Green"
 }
 
-# 如果脚本被直接运行（不是被导入）
-if ($MyInvocation.InvocationName -ne '.') {
-    if ($ServerIP -and $NodeName) {
-        Install-BServerClient -ServerIP $ServerIP -NodeName $NodeName
-    } else {
-        Write-ColorOutput "[ERROR] 使用方法: .\install_client.ps1 -ServerIP <SERVER_IP> [-NodeName <NODE_NAME>]" "Red"
-        Write-ColorOutput "[ERROR] 例如: .\install_client.ps1 -ServerIP '192.168.1.100' -NodeName 'MyServer'" "Red"
-        exit 1
-    }
-} 
+# 主逻辑：处理直接运行和一键命令调用
+if ($PSBoundParameters.Count -eq 0 -and $args.Count -eq 0) {
+    # 没有参数时显示帮助
+    Write-ColorOutput "[ERROR] 缺少必需的参数" "Red"
+    Write-ColorOutput "[INFO] 使用方法:" "Blue"
+    Write-Host "  本地运行: .\install_client.ps1 -ServerIP '<服务器IP>' -NodeName '<节点名称>'"
+    Write-Host "  一键命令: powershell -ExecutionPolicy Bypass -Command `"iwr -Uri 'https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/install_client.ps1' -UseBasicParsing | iex; Install-BServerClient -ServerIP '<服务器IP>' -NodeName '<节点名称>'`""
+    Write-Host ""
+    Write-ColorOutput "[INFO] 示例:" "Blue"
+    Write-Host "  .\install_client.ps1 -ServerIP '192.168.1.100' -NodeName 'MyServer'"
+    Write-Host "  powershell -ExecutionPolicy Bypass -Command `"iwr -Uri 'https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/install_client.ps1' -UseBasicParsing | iex; Install-BServerClient -ServerIP '192.168.1.100' -NodeName 'MyServer'`""
+    exit 1
+} elseif ($ServerIP) {
+    # 如果通过参数调用（本地运行脚本）
+    Install-BServerClient -ServerIP $ServerIP -NodeName $NodeName
+}
+
+# 注意：一键命令会下载脚本并执行，然后调用 Install-BServerClient 函数
+# 这种情况下不会进入上面的条件分支，函数会在一键命令中被直接调用 
