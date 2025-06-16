@@ -268,13 +268,42 @@ echo.
 "@
     Set-Content -Path "start_background.bat" -Value $startBackgroundScript -Encoding UTF8
 
-    # 停止脚本
+    # 停止脚本 - 改进版本，使用更可靠的进程检测
     $stopScript = @"
 @echo off
 echo Stopping B-Server Client...
-taskkill /f /im python.exe /fi "WINDOWTITLE eq B-Server Client" 2>nul
-taskkill /f /im pythonw.exe /fi "COMMANDLINE eq *client.py*" 2>nul
-echo B-Server Client stopped
+echo.
+
+echo Stopping foreground Python processes...
+for /f "tokens=2" %%i in ('tasklist /fi "IMAGENAME eq python.exe" /fo csv ^| find "python.exe"') do (
+    echo Killing process %%i
+    taskkill /f /pid %%i 2>nul
+)
+
+echo Stopping background Python processes...
+for /f "tokens=2" %%i in ('tasklist /fi "IMAGENAME eq pythonw.exe" /fo csv ^| find "pythonw.exe"') do (
+    echo Killing process %%i
+    taskkill /f /pid %%i 2>nul
+)
+
+echo.
+echo Checking for remaining processes...
+tasklist /fi "IMAGENAME eq python.exe" 2>nul | find "python.exe" >nul
+if %errorlevel%==0 (
+    echo [WARNING] Some python.exe processes are still running
+) else (
+    echo [OK] No python.exe processes found
+)
+
+tasklist /fi "IMAGENAME eq pythonw.exe" 2>nul | find "pythonw.exe" >nul
+if %errorlevel%==0 (
+    echo [WARNING] Some pythonw.exe processes are still running
+) else (
+    echo [OK] No pythonw.exe processes found
+)
+
+echo.
+echo B-Server Client stop completed
 pause
 "@
     Set-Content -Path "stop.bat" -Value $stopScript -Encoding UTF8
