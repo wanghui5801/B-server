@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime
 
 # Configuration - can be modified as needed
-SERVER_URL = 'http://localhost:3001'  # Socket.IO server address
+SERVER_URL = 'http://localhost:8008'  # Socket.IO server address
 NODE_NAME = socket.gethostname()  # Use hostname as node name, can be manually modified
 NODE_LOCATION = 'Local'  # Location
 
