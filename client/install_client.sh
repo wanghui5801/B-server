@@ -48,7 +48,7 @@ SUPERVISOR_CONF="$CLIENT_DIR/supervisord.conf"
 CLIENT_URL="https://raw.githubusercontent.com/wanghui5801/B-server/refs/heads/main/client/client.py"
 
 log_info "开始安装 B-Server 客户端..."
-log_info "服务器地址: $SERVER_IP:3001"
+log_info "服务器地址: $SERVER_IP:8008"
 log_info "节点名称: $NODE_NAME"
 log_info "安装目录: $CLIENT_DIR"
 
@@ -99,7 +99,7 @@ log_success "客户端文件下载完成"
 log_info "修改客户端配置..."
 
 # 修改SERVER_URL
-sed -i "s|SERVER_URL = 'http://localhost:3001'|SERVER_URL = 'http://$SERVER_IP:3001'|g" client.py
+sed -i "s|SERVER_URL = 'http://localhost:8008'|SERVER_URL = 'http://$SERVER_IP:8008'|g" client.py
 
 # 修改NODE_NAME（安全处理特殊字符）
 # 使用Python来安全地替换，避免shell特殊字符问题
@@ -241,7 +241,7 @@ fi
 
 if [ -f "client.py.new" ]; then
     # 修改配置
-    sed -i "s|SERVER_URL = 'http://localhost:3001'|SERVER_URL = 'http://$SERVER_IP:3001'|g" client.py.new
+    sed -i "s|SERVER_URL = 'http://localhost:8008'|SERVER_URL = 'http://$SERVER_IP:8008'|g" client.py.new
     # 安全地修改NODE_NAME
     python3 -c "
 import re
@@ -318,7 +318,7 @@ except ImportError as e:
 # 检查配置
 with open('$CLIENT_FILE', 'r') as f:
     content = f.read()
-    if 'http://$SERVER_IP:3001' in content:
+    if 'http://$SERVER_IP:8008' in content:
         print('✓ 服务器地址配置正确')
     else:
         print('✗ 服务器地址配置错误')
@@ -371,7 +371,7 @@ echo "========================================"
 echo ""
 echo "安装信息:"
 echo "  安装目录: $CLIENT_DIR"
-echo "  服务器地址: $SERVER_IP:3001"
+echo "  服务器地址: $SERVER_IP:8008"
 echo "  节点名称: $NODE_NAME"
 echo ""
 echo "管理命令:"
@@ -390,7 +390,7 @@ if command -v systemctl &> /dev/null; then
 fi
 echo "重要提示:"
 echo "  1. 请确保在服务器管理面板中添加了节点 '$NODE_NAME'"
-echo "  2. 请确保服务器防火墙允许3001端口访问"
+echo "  2. 请确保服务器防火墙允许8008端口访问"
 echo "  3. 客户端日志位置: $CLIENT_DIR/client.log"
 echo ""
 log_info "安装完成！客户端正在运行中..." 
