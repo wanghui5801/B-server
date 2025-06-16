@@ -128,8 +128,10 @@ function Install-BServerClient {
         $newServerUrl = "SERVER_URL = 'http://${ServerIP}:8008'"
         $content = $content -replace "SERVER_URL = 'http://localhost:8008'", $newServerUrl
         
-        # 修改NODE_NAME - 使用变量展开
-        $newNodeName = "NODE_NAME = '${NodeName}'"
+        # 修改NODE_NAME - 安全处理特殊字符
+        # 使用 [regex]::Escape 来转义PowerShell特殊字符
+        $escapedNodeName = [regex]::Escape($NodeName)
+        $newNodeName = "NODE_NAME = '$NodeName'"  # 保持原始节点名，不转义引号内容
         $content = $content -replace "NODE_NAME = socket\.gethostname\(\)", $newNodeName
         
         Set-Content -Path "client.py" -Value $content -Encoding UTF8
@@ -142,7 +144,7 @@ function Install-BServerClient {
         $serverUrlFound = $verifyContent.Contains($expectedServerUrl)
         
         # 检查NODE_NAME是否修改成功
-        $expectedNodeName = "NODE_NAME = '${NodeName}'"
+        $expectedNodeName = "NODE_NAME = '$NodeName'"
         $nodeNameFound = $verifyContent.Contains($expectedNodeName)
         
         Write-ColorOutput "[DEBUG] Expected Server URL: $expectedServerUrl" "Yellow"
@@ -230,7 +232,7 @@ if errorlevel 1 (
     echo Check the following:
     echo 1. Server ${ServerIP}:8008 is accessible
     echo 2. Node '${NodeName}' is added in admin panel
-    echo 3. Firewall allows outbound connections to port 3001
+    echo 3. Firewall allows outbound connections to port 8008
     echo.
 )
 pause
@@ -540,7 +542,7 @@ print('[SUCCESS] Client configuration test passed')
     Write-Host "  • On Windows, TCPing uses Python implementation to avoid CMD popups"
     Write-Host "  • Client will run silently in background when using start_background.bat"
     Write-Host "  • Ensure the node '${NodeName}' is added in the admin panel"
-    Write-Host "  • Check firewall allows outbound connections to port 3001"
+            Write-Host "  • Check firewall allows outbound connections to port 8008"
     Write-Host ""
     
     # Ask whether to start immediately
