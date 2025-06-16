@@ -125,11 +125,11 @@ function Install-BServerClient {
         $content = Get-Content -Path "client.py" -Raw -Encoding UTF8
         
         # 修改SERVER_URL - 使用变量展开
-        $newServerUrl = "SERVER_URL = 'http://$ServerIP:3001'"
+        $newServerUrl = "SERVER_URL = 'http://${ServerIP}:3001'"
         $content = $content -replace "SERVER_URL = 'http://localhost:3001'", $newServerUrl
         
         # 修改NODE_NAME - 使用变量展开
-        $newNodeName = "NODE_NAME = '$NodeName'"
+        $newNodeName = "NODE_NAME = '${NodeName}'"
         $content = $content -replace "NODE_NAME = socket\.gethostname\(\)", $newNodeName
         
         Set-Content -Path "client.py" -Value $content -Encoding UTF8
