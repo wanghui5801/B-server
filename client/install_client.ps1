@@ -230,7 +230,7 @@ if errorlevel 1 (
     echo Check the following:
     echo 1. Server ${ServerIP}:8008 is accessible
     echo 2. Node '${NodeName}' is added in admin panel
-    echo 3. Firewall allows outbound connections to port 8008
+    echo 3. Firewall allows outbound connections to port 3001
     echo.
 )
 pause
@@ -540,7 +540,7 @@ print('[SUCCESS] Client configuration test passed')
     Write-Host "  • On Windows, TCPing uses Python implementation to avoid CMD popups"
     Write-Host "  • Client will run silently in background when using start_background.bat"
     Write-Host "  • Ensure the node '${NodeName}' is added in the admin panel"
-    Write-Host "  • Check firewall allows outbound connections to port 8008"
+    Write-Host "  • Check firewall allows outbound connections to port 3001"
     Write-Host ""
     
     # Ask whether to start immediately
