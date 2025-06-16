@@ -44,9 +44,21 @@ function Install-BServerClient {
         [string]$NodeName = $env:COMPUTERNAME
     )
 
+    # 验证参数
+    if ([string]::IsNullOrWhiteSpace($ServerIP)) {
+        Write-ColorOutput "[ERROR] ServerIP parameter is null or empty" "Red"
+        exit 1
+    }
+    
+    if ([string]::IsNullOrWhiteSpace($NodeName)) {
+        $NodeName = $env:COMPUTERNAME
+    }
+
     Write-ColorOutput "[INFO] Starting B-Server client installation..." "Blue"
     Write-ColorOutput "[INFO] Server address: $ServerIP:3001" "Blue"
     Write-ColorOutput "[INFO] Node name: $NodeName" "Blue"
+    Write-ColorOutput "[DEBUG] Raw ServerIP: '$ServerIP'" "Yellow"
+    Write-ColorOutput "[DEBUG] Raw NodeName: '$NodeName'" "Yellow"
 
     # Configuration variables
     $ClientDir = Join-Path $env:USERPROFILE "b-server-client"
@@ -110,19 +122,33 @@ function Install-BServerClient {
     Write-ColorOutput "[INFO] Modifying client configuration..." "Blue"
     
     try {
-        $content = Get-Content -Path "client.py" -Raw
+        $content = Get-Content -Path "client.py" -Raw -Encoding UTF8
         
-        # 修改SERVER_URL
-        $content = $content -replace "SERVER_URL = 'http://localhost:3001'", "SERVER_URL = 'http://$ServerIP:3001'"
+        # 修改SERVER_URL - 使用变量展开
+        $newServerUrl = "SERVER_URL = 'http://$ServerIP:3001'"
+        $content = $content -replace "SERVER_URL = 'http://localhost:3001'", $newServerUrl
         
-        # 修改NODE_NAME
-        $content = $content -replace "NODE_NAME = socket\.gethostname\(\)", "NODE_NAME = '$NodeName'"
+        # 修改NODE_NAME - 使用变量展开
+        $newNodeName = "NODE_NAME = '$NodeName'"
+        $content = $content -replace "NODE_NAME = socket\.gethostname\(\)", $newNodeName
         
         Set-Content -Path "client.py" -Value $content -Encoding UTF8
-        Write-ColorOutput "[SUCCESS] Client configuration modified successfully" "Green"
+        
+        # 验证修改是否成功
+        $verifyContent = Get-Content -Path "client.py" -Raw -Encoding UTF8
+        if ($verifyContent -match "SERVER_URL = 'http://$([regex]::Escape($ServerIP)):3001'" -and 
+            $verifyContent -match "NODE_NAME = '$([regex]::Escape($NodeName))'") {
+            Write-ColorOutput "[SUCCESS] Client configuration modified successfully" "Green"
+            Write-ColorOutput "[INFO] Server URL: http://$ServerIP:3001" "Blue"
+            Write-ColorOutput "[INFO] Node Name: $NodeName" "Blue"
+        } else {
+            throw "Configuration verification failed"
+        }
     }
     catch {
         Write-ColorOutput "[ERROR] Configuration file modification failed: $($_.Exception.Message)" "Red"
+        Write-ColorOutput "[DEBUG] ServerIP: '$ServerIP'" "Yellow"
+        Write-ColorOutput "[DEBUG] NodeName: '$NodeName'" "Yellow"
         exit 1
     }
 
@@ -164,16 +190,16 @@ function Install-BServerClient {
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client...
-echo Server: $ServerIP:3001
-echo Node: $NodeName
+echo Server: $($ServerIP):3001
+echo Node: $($NodeName)
 echo.
 venv\Scripts\python.exe client.py
 if errorlevel 1 (
     echo.
     echo [ERROR] Client failed to start. Error code: %errorlevel%
     echo Check the following:
-    echo 1. Server $ServerIP:3001 is accessible
-    echo 2. Node '$NodeName' is added in admin panel
+    echo 1. Server $($ServerIP):3001 is accessible
+    echo 2. Node '$($NodeName)' is added in admin panel
     echo 3. Firewall allows outbound connections to port 3001
     echo.
 )
@@ -186,8 +212,8 @@ pause
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client in background...
-echo Server: $ServerIP:3001
-echo Node: $NodeName
+echo Server: $($ServerIP):3001
+echo Node: $($NodeName)
 echo.
 
 REM 先停止现有进程
@@ -201,7 +227,7 @@ REM 等待进程启动
 timeout /t 2 /nobreak >nul
 
 REM 检查是否启动成功
-tasklist /fi "IMAGENAME eq pythonw.exe" /fi "COMMANDLINE eq *client.py*" 2>nul | find "pythonw.exe" >nul
+tasklist /fi "IMAGENAME eq pythonw.exe" 2>nul | find "pythonw.exe" >nul
 if %errorlevel%==0 (
     echo B-Server Client started successfully in background
 ) else (
@@ -229,20 +255,20 @@ pause
 echo ========================================
 echo B-Server Client Status Check
 echo ========================================
-echo Server: $ServerIP:3001
-echo Node: $NodeName
+echo Server: $($ServerIP):3001
+echo Node: $($NodeName)
 echo Installation: %~dp0
 echo.
 echo Checking processes...
-tasklist /fi "IMAGENAME eq python.exe" /fi "COMMANDLINE eq *client.py*" 2>nul | find "python.exe" >nul
+tasklist /fi "IMAGENAME eq python.exe" 2>nul | find "python.exe" >nul
 if %errorlevel%==0 (
     echo [STATUS] B-Server Client is running (foreground)
-    tasklist /fi "IMAGENAME eq python.exe" /fi "COMMANDLINE eq *client.py*"
+    tasklist /fi "IMAGENAME eq python.exe" 2>nul
 ) else (
-    tasklist /fi "IMAGENAME eq pythonw.exe" /fi "COMMANDLINE eq *client.py*" 2>nul | find "pythonw.exe" >nul
+    tasklist /fi "IMAGENAME eq pythonw.exe" 2>nul | find "pythonw.exe" >nul
     if %errorlevel%==0 (
         echo [STATUS] B-Server Client is running (background)
-        tasklist /fi "IMAGENAME eq pythonw.exe" /fi "COMMANDLINE eq *client.py*"
+        tasklist /fi "IMAGENAME eq pythonw.exe" 2>nul
     ) else (
         echo [STATUS] B-Server Client is not running
         echo.
@@ -252,8 +278,8 @@ if %errorlevel%==0 (
         echo.
         echo To troubleshoot:
         echo   1. Run start.bat to see error messages
-        echo   2. Check if server $ServerIP:3001 is accessible
-        echo   3. Ensure node '$NodeName' exists in admin panel
+        echo   2. Check if server $($ServerIP):3001 is accessible
+        echo   3. Ensure node '$($NodeName)' exists in admin panel
     )
 )
 echo.
@@ -268,8 +294,8 @@ cd /d "%~dp0"
 echo ========================================
 echo B-Server Client Debug Information
 echo ========================================
-echo Server: $ServerIP:3001
-echo Node: $NodeName
+echo Server: $($ServerIP):3001
+echo Node: $($NodeName)
 echo Installation: %~dp0
 echo Time: %date% %time%
 echo.
@@ -290,13 +316,13 @@ if errorlevel 1 (
 )
 
 echo [3] Testing network connectivity...
-ping -n 1 $ServerIP >nul
+ping -n 1 $($ServerIP) >nul
 if errorlevel 1 (
-    echo [ERROR] Cannot reach server $ServerIP
+    echo [ERROR] Cannot reach server $($ServerIP)
     echo Check network connection and firewall
     goto :end
 ) else (
-    echo Server $ServerIP is reachable
+    echo Server $($ServerIP) is reachable
 )
 
 echo [4] Testing client configuration...

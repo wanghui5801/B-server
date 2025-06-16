@@ -12,26 +12,26 @@ import ipaddress
 import shutil
 from datetime import datetime
 
-# 可根据实际情况修改
-SERVER_URL = 'http://localhost:3001'  # Socket.IO服务器地址
-NODE_NAME = socket.gethostname()  # 使用主机名作为节点名，可以手动修改
-NODE_LOCATION = '本地'  # 位置
+# Configuration - can be modified as needed
+SERVER_URL = 'http://localhost:3001'  # Socket.IO server address
+NODE_NAME = socket.gethostname()  # Use hostname as node name, can be manually modified
+NODE_LOCATION = 'Local'  # Location
 
-# 网络流量统计（用于计算速率）
+# Network traffic statistics (for calculating rates)
 last_net_io = None
 last_time = None
 
-# 防止重复发送数据
+# Prevent duplicate data sending
 last_send_time = 0
-SEND_COOLDOWN = 2  # 2秒冷却时间
+SEND_COOLDOWN = 2  # 2 seconds cooldown
 
-# 创建Socket.IO客户端
+# Create Socket.IO client
 sio = socketio.Client()
 
-# 缓存系统类型检测结果
+# Cache system type detection results
 _cached_system_type = None
 
-# 缓存CPU信息（Windows特有问题的解决方案）
+# Cache CPU info (solution for Windows-specific issues)
 _cached_cpu_info = None
 
 def detect_system_type():
