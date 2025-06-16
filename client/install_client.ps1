@@ -55,7 +55,7 @@ function Install-BServerClient {
     }
 
     Write-ColorOutput "[INFO] Starting B-Server client installation..." "Blue"
-    Write-ColorOutput "[INFO] Server address: ${ServerIP}:3001" "Blue"
+    Write-ColorOutput "[INFO] Server address: ${ServerIP}:8008" "Blue"
     Write-ColorOutput "[INFO] Node name: ${NodeName}" "Blue"
     Write-ColorOutput "[DEBUG] Raw ServerIP: '${ServerIP}'" "Yellow"
     Write-ColorOutput "[DEBUG] Raw NodeName: '${NodeName}'" "Yellow"
@@ -125,8 +125,8 @@ function Install-BServerClient {
         $content = Get-Content -Path "client.py" -Raw -Encoding UTF8
         
         # 修改SERVER_URL - 使用变量展开
-        $newServerUrl = "SERVER_URL = 'http://${ServerIP}:3001'"
-        $content = $content -replace "SERVER_URL = 'http://localhost:3001'", $newServerUrl
+        $newServerUrl = "SERVER_URL = 'http://${ServerIP}:8008'"
+        $content = $content -replace "SERVER_URL = 'http://localhost:8008'", $newServerUrl
         
         # 修改NODE_NAME - 使用变量展开
         $newNodeName = "NODE_NAME = '${NodeName}'"
@@ -138,7 +138,7 @@ function Install-BServerClient {
         $verifyContent = Get-Content -Path "client.py" -Raw -Encoding UTF8
         
         # 检查SERVER_URL是否修改成功
-        $expectedServerUrl = "SERVER_URL = 'http://${ServerIP}:3001'"
+        $expectedServerUrl = "SERVER_URL = 'http://${ServerIP}:8008'"
         $serverUrlFound = $verifyContent.Contains($expectedServerUrl)
         
         # 检查NODE_NAME是否修改成功
@@ -152,7 +152,7 @@ function Install-BServerClient {
         
         if ($serverUrlFound -and $nodeNameFound) {
             Write-ColorOutput "[SUCCESS] Client configuration modified successfully" "Green"
-            Write-ColorOutput "[INFO] Server URL: http://${ServerIP}:3001" "Blue"
+            Write-ColorOutput "[INFO] Server URL: http://${ServerIP}:8008" "Blue"
             Write-ColorOutput "[INFO] Node Name: ${NodeName}" "Blue"
         } else {
             # 显示实际的配置内容用于调试
@@ -220,7 +220,7 @@ function Install-BServerClient {
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client...
-echo Server: ${ServerIP}:3001
+echo Server: ${ServerIP}:8008
 echo Node: ${NodeName}
 echo.
 venv\Scripts\python.exe client.py
@@ -228,9 +228,9 @@ if errorlevel 1 (
     echo.
     echo [ERROR] Client failed to start. Error code: %errorlevel%
     echo Check the following:
-    echo 1. Server ${ServerIP}:3001 is accessible
+    echo 1. Server ${ServerIP}:8008 is accessible
     echo 2. Node '${NodeName}' is added in admin panel
-    echo 3. Firewall allows outbound connections to port 3001
+    echo 3. Firewall allows outbound connections to port 8008
     echo.
 )
 pause
@@ -242,7 +242,7 @@ pause
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client in background...
-echo Server: ${ServerIP}:3001
+echo Server: ${ServerIP}:8008
 echo Node: ${NodeName}
 echo.
 
@@ -336,7 +336,7 @@ pause
 echo ========================================
 echo B-Server Client Status Check
 echo ========================================
-echo Server: ${ServerIP}:3001
+echo Server: ${ServerIP}:8008
 echo Node: ${NodeName}
 echo Installation: %~dp0
 echo.
@@ -359,7 +359,7 @@ if %errorlevel%==0 (
         echo.
         echo To troubleshoot:
         echo   1. Run start.bat to see error messages
-        echo   2. Check if server ${ServerIP}:3001 is accessible
+        echo   2. Check if server ${ServerIP}:8008 is accessible
         echo   3. Ensure node '${NodeName}' exists in admin panel
     )
 )
@@ -375,7 +375,7 @@ cd /d "%~dp0"
 echo ========================================
 echo B-Server Client Debug Information
 echo ========================================
-echo Server: ${ServerIP}:3001
+echo Server: ${ServerIP}:8008
 echo Node: ${NodeName}
 echo Installation: %~dp0
 echo Time: %date% %time%
@@ -435,7 +435,7 @@ powershell -Command "Invoke-WebRequest -Uri '{0}' -OutFile 'client.py.new' -UseB
 
 if exist client.py.new (
     echo Updating configuration...
-    powershell -Command "(Get-Content 'client.py.new') -replace \"SERVER_URL = 'http://localhost:3001'\", \"SERVER_URL = 'http://{1}:3001'\" -replace \"NODE_NAME = socket\.gethostname\(\)\", \"NODE_NAME = '{2}'\" | Set-Content 'client.py.new'"
+    powershell -Command "(Get-Content 'client.py.new') -replace \"SERVER_URL = 'http://localhost:8008'\", \"SERVER_URL = 'http://{1}:8008'\" -replace \"NODE_NAME = socket\.gethostname\(\)\", \"NODE_NAME = '{2}'\" | Set-Content 'client.py.new'"
     
     move client.py client.py.backup
     move client.py.new client.py
@@ -489,7 +489,7 @@ except ImportError as e:
 # Check configuration
 with open('client.py', 'r', encoding='utf-8') as f:
     content = f.read()
-    if 'http://{0}:3001' in content:
+    if 'http://{0}:8008' in content:
         print('[SUCCESS] Server address configured correctly')
     else:
         print('[ERROR] Server address configuration error')
@@ -525,7 +525,7 @@ print('[SUCCESS] Client configuration test passed')
     Write-ColorOutput "" "White"
     Write-ColorOutput "Installation Information:" "Blue"
     Write-Host "  Installation Directory: $ClientDir"
-    Write-Host "  Server Address: ${ServerIP}:3001"
+    Write-Host "  Server Address: ${ServerIP}:8008"
     Write-Host "  Node Name: ${NodeName}"
     Write-Host ""
     Write-ColorOutput "Management Commands:" "Blue"
@@ -540,7 +540,7 @@ print('[SUCCESS] Client configuration test passed')
     Write-Host "  • On Windows, TCPing uses Python implementation to avoid CMD popups"
     Write-Host "  • Client will run silently in background when using start_background.bat"
     Write-Host "  • Ensure the node '${NodeName}' is added in the admin panel"
-    Write-Host "  • Check firewall allows outbound connections to port 3001"
+    Write-Host "  • Check firewall allows outbound connections to port 8008"
     Write-Host ""
     
     # Ask whether to start immediately
