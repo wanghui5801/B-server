@@ -55,10 +55,10 @@ function Install-BServerClient {
     }
 
     Write-ColorOutput "[INFO] Starting B-Server client installation..." "Blue"
-    Write-ColorOutput "[INFO] Server address: $ServerIP:3001" "Blue"
-    Write-ColorOutput "[INFO] Node name: $NodeName" "Blue"
-    Write-ColorOutput "[DEBUG] Raw ServerIP: '$ServerIP'" "Yellow"
-    Write-ColorOutput "[DEBUG] Raw NodeName: '$NodeName'" "Yellow"
+    Write-ColorOutput "[INFO] Server address: ${ServerIP}:3001" "Blue"
+    Write-ColorOutput "[INFO] Node name: ${NodeName}" "Blue"
+    Write-ColorOutput "[DEBUG] Raw ServerIP: '${ServerIP}'" "Yellow"
+    Write-ColorOutput "[DEBUG] Raw NodeName: '${NodeName}'" "Yellow"
 
     # Configuration variables
     $ClientDir = Join-Path $env:USERPROFILE "b-server-client"
@@ -136,19 +136,49 @@ function Install-BServerClient {
         
         # 验证修改是否成功
         $verifyContent = Get-Content -Path "client.py" -Raw -Encoding UTF8
-        if ($verifyContent -match "SERVER_URL = 'http://$([regex]::Escape($ServerIP)):3001'" -and 
-            $verifyContent -match "NODE_NAME = '$([regex]::Escape($NodeName))'") {
+        
+        # 检查SERVER_URL是否修改成功
+        $expectedServerUrl = "SERVER_URL = 'http://${ServerIP}:3001'"
+        $serverUrlFound = $verifyContent.Contains($expectedServerUrl)
+        
+        # 检查NODE_NAME是否修改成功
+        $expectedNodeName = "NODE_NAME = '${NodeName}'"
+        $nodeNameFound = $verifyContent.Contains($expectedNodeName)
+        
+        Write-ColorOutput "[DEBUG] Expected Server URL: $expectedServerUrl" "Yellow"
+        Write-ColorOutput "[DEBUG] Server URL found: $serverUrlFound" "Yellow"
+        Write-ColorOutput "[DEBUG] Expected Node Name: $expectedNodeName" "Yellow"
+        Write-ColorOutput "[DEBUG] Node Name found: $nodeNameFound" "Yellow"
+        
+        if ($serverUrlFound -and $nodeNameFound) {
             Write-ColorOutput "[SUCCESS] Client configuration modified successfully" "Green"
-            Write-ColorOutput "[INFO] Server URL: http://$ServerIP:3001" "Blue"
-            Write-ColorOutput "[INFO] Node Name: $NodeName" "Blue"
+            Write-ColorOutput "[INFO] Server URL: http://${ServerIP}:3001" "Blue"
+            Write-ColorOutput "[INFO] Node Name: ${NodeName}" "Blue"
         } else {
-            throw "Configuration verification failed"
+            # 显示实际的配置内容用于调试
+            $relevantLines = $verifyContent -split "`n" | Where-Object { $_ -match "SERVER_URL|NODE_NAME" } | Select-Object -First 10
+            Write-ColorOutput "[DEBUG] Actual configuration lines:" "Yellow"
+            foreach ($line in $relevantLines) {
+                Write-ColorOutput "[DEBUG] $line" "Yellow"
+            }
+            throw "Configuration verification failed - Expected patterns not found"
         }
     }
     catch {
         Write-ColorOutput "[ERROR] Configuration file modification failed: $($_.Exception.Message)" "Red"
-        Write-ColorOutput "[DEBUG] ServerIP: '$ServerIP'" "Yellow"
-        Write-ColorOutput "[DEBUG] NodeName: '$NodeName'" "Yellow"
+        Write-ColorOutput "[DEBUG] ServerIP: '${ServerIP}'" "Yellow"
+        Write-ColorOutput "[DEBUG] NodeName: '${NodeName}'" "Yellow"
+        
+        # 显示文件的前几行用于调试
+        try {
+            $filePreview = Get-Content -Path "client.py" -TotalCount 20 -Encoding UTF8
+            Write-ColorOutput "[DEBUG] First 20 lines of client.py:" "Yellow"
+            for ($i = 0; $i -lt $filePreview.Length; $i++) {
+                Write-ColorOutput "[DEBUG] $($i+1): $($filePreview[$i])" "Yellow"
+            }
+        } catch {
+            Write-ColorOutput "[DEBUG] Could not read client.py for debugging" "Yellow"
+        }
         exit 1
     }
 
@@ -190,16 +220,16 @@ function Install-BServerClient {
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client...
-echo Server: $($ServerIP):3001
-echo Node: $($NodeName)
+echo Server: ${ServerIP}:3001
+echo Node: ${NodeName}
 echo.
 venv\Scripts\python.exe client.py
 if errorlevel 1 (
     echo.
     echo [ERROR] Client failed to start. Error code: %errorlevel%
     echo Check the following:
-    echo 1. Server $($ServerIP):3001 is accessible
-    echo 2. Node '$($NodeName)' is added in admin panel
+    echo 1. Server ${ServerIP}:3001 is accessible
+    echo 2. Node '${NodeName}' is added in admin panel
     echo 3. Firewall allows outbound connections to port 3001
     echo.
 )
@@ -212,8 +242,8 @@ pause
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client in background...
-echo Server: $($ServerIP):3001
-echo Node: $($NodeName)
+echo Server: ${ServerIP}:3001
+echo Node: ${NodeName}
 echo.
 
 REM 先停止现有进程
@@ -255,8 +285,8 @@ pause
 echo ========================================
 echo B-Server Client Status Check
 echo ========================================
-echo Server: $($ServerIP):3001
-echo Node: $($NodeName)
+echo Server: ${ServerIP}:3001
+echo Node: ${NodeName}
 echo Installation: %~dp0
 echo.
 echo Checking processes...
@@ -278,8 +308,8 @@ if %errorlevel%==0 (
         echo.
         echo To troubleshoot:
         echo   1. Run start.bat to see error messages
-        echo   2. Check if server $($ServerIP):3001 is accessible
-        echo   3. Ensure node '$($NodeName)' exists in admin panel
+        echo   2. Check if server ${ServerIP}:3001 is accessible
+        echo   3. Ensure node '${NodeName}' exists in admin panel
     )
 )
 echo.
@@ -294,8 +324,8 @@ cd /d "%~dp0"
 echo ========================================
 echo B-Server Client Debug Information
 echo ========================================
-echo Server: $($ServerIP):3001
-echo Node: $($NodeName)
+echo Server: ${ServerIP}:3001
+echo Node: ${NodeName}
 echo Installation: %~dp0
 echo Time: %date% %time%
 echo.
@@ -316,13 +346,13 @@ if errorlevel 1 (
 )
 
 echo [3] Testing network connectivity...
-ping -n 1 $($ServerIP) >nul
+ping -n 1 ${ServerIP} >nul
 if errorlevel 1 (
-    echo [ERROR] Cannot reach server $($ServerIP)
+    echo [ERROR] Cannot reach server ${ServerIP}
     echo Check network connection and firewall
     goto :end
 ) else (
-    echo Server $($ServerIP) is reachable
+    echo Server ${ServerIP} is reachable
 )
 
 echo [4] Testing client configuration...
@@ -445,8 +475,8 @@ print('[SUCCESS] Client configuration test passed')
     Write-Host ""
     Write-ColorOutput "Installation Information:" "Blue"
     Write-Host "  Installation Directory: $ClientDir"
-    Write-Host "  Server Address: $ServerIP:3001"
-    Write-Host "  Node Name: $NodeName"
+    Write-Host "  Server Address: ${ServerIP}:3001"
+    Write-Host "  Node Name: ${NodeName}"
     Write-Host ""
     Write-ColorOutput "Management Commands:" "Blue"
     Write-Host "  Start Client: .\start.bat"
