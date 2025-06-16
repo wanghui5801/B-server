@@ -1088,9 +1088,75 @@ def get_ip_addresses():
         'ipv6': ipv6                         # 原始IPv6地址（可能为None）
     }
 
-def find_tcping_executable():
-    """查找tcping可执行文件的位置 - 改进的跨平台版本"""
+def python_tcping(host, port, timeout=5):
+    """Pure Python implementation of TCP ping to avoid CMD windows on Windows"""
+    import socket
+    import time
     
+    try:
+        # Create socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        
+        # Record start time
+        start_time = time.time()
+        
+        # Attempt connection
+        result = sock.connect_ex((host, int(port)))
+        
+        # Calculate latency
+        end_time = time.time()
+        latency = (end_time - start_time) * 1000  # Convert to milliseconds
+        
+        sock.close()
+        
+        if result == 0:
+            return {
+                'host': host,
+                'port': port,
+                'latency': round(latency, 2),
+                'success': True
+            }
+        else:
+            return {
+                'host': host,
+                'port': port,
+                'latency': None,
+                'success': False
+            }
+            
+    except socket.timeout:
+        return {
+            'host': host,
+            'port': port,
+            'latency': None,
+            'success': False
+        }
+    except Exception as e:
+        print(f"[TCPing] Exception in python_tcping: {e}")
+        return {
+            'host': host,
+            'port': port,
+            'latency': None,
+            'success': False
+        }
+
+def find_tcping_executable():
+    """查找tcping可执行文件的位置 - Windows优先使用Python包"""
+    
+    # Windows系统优先使用Python tcping模块，避免弹窗
+    if platform.system() == 'Windows':
+        print(f"[TCPing] Windows detected - checking for Python tcping module first")
+        try:
+            # 尝试导入tcping Python包
+            import tcping
+            print(f"[TCPing] Python tcping module found - using pure Python implementation")
+            return 'python_module'
+        except ImportError:
+            print(f"[TCPing] Python tcping module not found, falling back to built-in socket method")
+            return 'python_socket'
+    
+    # 对于Linux/Unix系统，仍然可以尝试系统的tcping
     # 首先尝试使用 shutil.which() 在PATH中查找
     tcping_path = shutil.which('tcping')
     if tcping_path:
@@ -1100,39 +1166,7 @@ def find_tcping_executable():
     # 如果在PATH中找不到，尝试常见位置
     possible_paths = []
     
-    if platform.system() == 'Windows':
-        # Windows可能的路径
-        possible_paths = [
-            # 用户本地安装位置
-            os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tcping.exe'),
-            os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tcping'),
-        ]
-        
-        # 尝试找到Python安装目录的Scripts文件夹
-        python_paths = []
-        for python_cmd in ['python', 'python3', 'py']:
-            python_exe = shutil.which(python_cmd)
-            if python_exe:
-                python_dir = os.path.dirname(python_exe)
-                scripts_dir = os.path.join(python_dir, 'Scripts')
-                if os.path.isdir(scripts_dir):
-                    python_paths.extend([
-                        os.path.join(scripts_dir, 'tcping.exe'),
-                        os.path.join(scripts_dir, 'tcping'),
-                    ])
-        
-        possible_paths.extend(python_paths)
-        
-        # 添加更多Windows常见位置
-        possible_paths.extend([
-            # AppData位置
-            os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'Programs', 'Python', 'Scripts', 'tcping.exe'),
-            os.path.join(os.path.expanduser('~'), 'AppData', 'Roaming', 'Python', 'Scripts', 'tcping.exe'),
-            # 当前Python环境的Scripts目录
-            os.path.join(os.path.dirname(shutil.which('python') or ''), 'Scripts', 'tcping.exe'),
-            os.path.join(os.path.dirname(shutil.which('python') or ''), 'Scripts', 'tcping'),
-        ])
-    else:
+    if platform.system() != 'Windows':
         # Unix/Linux可能的路径
         possible_paths = [
             os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tcping'),
@@ -1140,27 +1174,19 @@ def find_tcping_executable():
             '/usr/bin/tcping',
             '/opt/homebrew/bin/tcping',  # macOS Homebrew
         ]
+        
+        # 测试每个可能的路径
+        for path in possible_paths:
+            if path and os.path.isfile(path) and os.access(path, os.X_OK):
+                print(f"[TCPing] Found tcping at: {path}")
+                return path
     
-    # 测试每个可能的路径
-    for path in possible_paths:
-        if path and os.path.isfile(path) and os.access(path, os.X_OK):
-            print(f"[TCPing] Found tcping at: {path}")
-            return path
-    
-    # 最后尝试直接使用 'tcping' 命令（也许在PATH中但shutil.which没找到）
-    try:
-        result = subprocess.run(['tcping', '--help'], capture_output=True, timeout=3)
-        if result.returncode in [0, 1] or b'usage' in result.stdout.lower() or b'usage' in result.stderr.lower():
-            print(f"[TCPing] Using direct 'tcping' command")
-            return 'tcping'
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
-        pass
-    
-    print(f"[TCPing] tcping executable not found in any common locations")
-    return None
+    # 如果都找不到，使用内置的Python socket方法
+    print(f"[TCPing] No external tcping found, using built-in Python socket method")
+    return 'python_socket'
 
 def perform_tcping(host, port):
-    """执行tcping命令并返回结果 - 增强的跨平台版本"""
+    """执行tcping命令并返回结果 - 优先使用Python实现避免弹窗"""
     try:
         # 验证输入参数
         if not host or not port:
@@ -1168,136 +1194,161 @@ def perform_tcping(host, port):
             return {
                 'host': host or 'unknown',
                 'port': port or 0,
-                'latency': None,  # 无效参数时应该返回None而不是0
-                'success': False
-            }
-        
-        # 查找tcping可执行文件
-        tcping_cmd = find_tcping_executable()
-        if not tcping_cmd:
-            print(f"[TCPing] ✗ tcping executable not found")
-            print(f"[TCPing] ✗ Please install tcping: pip install tcping")
-            print(f"[TCPing] ✗ Or ensure tcping is in your PATH")
-            return {
-                'host': host,
-                'port': port,
                 'latency': None,
                 'success': False
             }
         
-        # 构建命令
-        cmd = [tcping_cmd, str(host), '-p', str(port), '-c', '1', '--report']
+        # 查找tcping方法
+        tcping_method = find_tcping_executable()
         
-        print(f"[TCPing] Executing: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        # 使用Python socket方法 (避免弹窗)
+        if tcping_method == 'python_socket':
+            print(f"[TCPing] Using built-in Python socket method for {host}:{port}")
+            return python_tcping(host, port)
         
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            print(f"[TCPing] Output: {output}")
-            
-            output_lower = output.lower()
-            
-            # 解析输出获取延迟时间
-            import re
-            
-            # 首先检查是否连接成功（优先检查成功指示符）
-            if 'connected' in output_lower:
-                # 检查具体的失败指示符（更精确的检查）
-                specific_failure_indicators = ['time out!', 'timeout!', 'connection refused', 'unreachable', 'no route']
+        # 使用Python tcping模块
+        elif tcping_method == 'python_module':
+            print(f"[TCPing] Using Python tcping module for {host}:{port}")
+            try:
+                import tcping
+                result = tcping.Ping(host, int(port), timeout=5)
+                result.ping(1)  # Ping once
                 
-                # 如果输出包含具体的失败指示符，视为失败
-                if any(indicator in output_lower for indicator in specific_failure_indicators):
-                    print(f"[TCPing] ✗ Failed (detected specific failure in output): {host}:{port}")
+                if result.result:
+                    avg_time = result.result[0].time if result.result[0].time else 1.0
+                    return {
+                        'host': host,
+                        'port': port,
+                        'latency': round(avg_time, 2),
+                        'success': True
+                    }
+                else:
                     return {
                         'host': host,
                         'port': port,
                         'latency': None,
                         'success': False
                     }
+            except Exception as e:
+                print(f"[TCPing] Python tcping module failed: {e}, falling back to socket method")
+                return python_tcping(host, port)
+        
+        # 使用外部tcping可执行文件 (仅限Linux/Unix)
+        else:
+            # 构建命令
+            cmd = [tcping_method, str(host), '-p', str(port), '-c', '1', '--report']
+            
+            print(f"[TCPing] Executing: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            # 处理外部tcping命令的结果
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                print(f"[TCPing] Output: {output}")
                 
-                # 尝试多种正则表达式模式来提取延迟时间
-                patterns = [
-                    r'time=(\d+\.?\d*)\s*ms',  # time=1.78 ms
-                    r'time:\s*(\d+\.?\d*)\s*ms',  # time: 1.78 ms
-                    r'(\d+\.?\d*)\s*ms'  # 任何数字+ms的组合
-                ]
+                output_lower = output.lower()
                 
-                latency = None
+                # 解析输出获取延迟时间
+                import re
                 
-                for pattern in patterns:
-                    matches = re.findall(pattern, output)
-                    if matches:
-                        # 如果找到多个匹配，取第一个（通常是实际的延迟时间）
-                        latency = float(matches[0])
-                        break
-                
-                print(f"[TCPing Debug] Found 'connected' in output")
-                print(f"[TCPing Debug] Extracted latency: {latency}")
-                
-                if latency is not None and latency > 0:
-                    print(f"[TCPing] ✓ Success: {host}:{port} - {latency}ms")
-                    return {
-                        'host': host,
-                        'port': port,
-                        'latency': latency,
-                        'success': True
-                    }
-                else:
-                    # 连接成功但无法解析延迟或延迟为0，检查是否真的失败了
-                    if '0.00ms' in output and ('0     |   1' in output or 'failed' in output.lower()):
-                        print(f"[TCPing] ✗ Connected but actually failed (0ms latency): {host}:{port}")
+                # 首先检查是否连接成功（优先检查成功指示符）
+                if 'connected' in output_lower:
+                    # 检查具体的失败指示符（更精确的检查）
+                    specific_failure_indicators = ['time out!', 'timeout!', 'connection refused', 'unreachable', 'no route']
+                    
+                    # 如果输出包含具体的失败指示符，视为失败
+                    if any(indicator in output_lower for indicator in specific_failure_indicators):
+                        print(f"[TCPing] ✗ Failed (detected specific failure in output): {host}:{port}")
                         return {
                             'host': host,
                             'port': port,
                             'latency': None,
                             'success': False
                         }
+                    
+                    # 尝试多种正则表达式模式来提取延迟时间
+                    patterns = [
+                        r'time=(\d+\.?\d*)\s*ms',  # time=1.78 ms
+                        r'time:\s*(\d+\.?\d*)\s*ms',  # time: 1.78 ms
+                        r'(\d+\.?\d*)\s*ms'  # 任何数字+ms的组合
+                    ]
+                    
+                    latency = None
+                    
+                    for pattern in patterns:
+                        matches = re.findall(pattern, output)
+                        if matches:
+                            # 如果找到多个匹配，取第一个（通常是实际的延迟时间）
+                            latency = float(matches[0])
+                            break
+                    
+                    print(f"[TCPing Debug] Found 'connected' in output")
+                    print(f"[TCPing Debug] Extracted latency: {latency}")
+                    
+                    if latency is not None and latency > 0:
+                        print(f"[TCPing] ✓ Success: {host}:{port} - {latency}ms")
+                        return {
+                            'host': host,
+                            'port': port,
+                            'latency': latency,
+                            'success': True
+                        }
                     else:
-                        # 连接成功但无法解析延迟，给一个默认值
-                        print(f"[TCPing] ✓ Connected but couldn't parse latency: {host}:{port}")
+                        # 连接成功但无法解析延迟或延迟为0，检查是否真的失败了
+                        if '0.00ms' in output and ('0     |   1' in output or 'failed' in output.lower()):
+                            print(f"[TCPing] ✗ Connected but actually failed (0ms latency): {host}:{port}")
+                            return {
+                                'host': host,
+                                'port': port,
+                                'latency': None,
+                                'success': False
+                            }
+                        else:
+                            # 连接成功但无法解析延迟，给一个默认值
+                            print(f"[TCPing] ✓ Connected but couldn't parse latency: {host}:{port}")
+                            return {
+                                'host': host,
+                                'port': port,
+                                'latency': 1.0,
+                                'success': True
+                            }
+                else:
+                    # 没有找到"connected"，检查其他成功指示符
+                    success_indicators = ['open', 'reachable', 'success']
+                    if any(indicator in output_lower for indicator in success_indicators):
+                        print(f"[TCPing] ✓ Success detected but couldn't parse latency: {host}:{port}")
                         return {
                             'host': host,
                             'port': port,
                             'latency': 1.0,
                             'success': True
                         }
+                    else:
+                        # 既没有成功指示符也没有失败指示符，视为失败
+                        print(f"[TCPing] ✗ No success indicators found, treating as failure: {host}:{port}")
+                        print(f"[TCPing Debug] Output lower: '{output_lower}'")
+                        return {
+                            'host': host,
+                            'port': port,
+                            'latency': None,
+                            'success': False
+                        }
             else:
-                # 没有找到"connected"，检查其他成功指示符
-                success_indicators = ['open', 'reachable', 'success']
-                if any(indicator in output_lower for indicator in success_indicators):
-                    print(f"[TCPing] ✓ Success detected but couldn't parse latency: {host}:{port}")
-                    return {
-                        'host': host,
-                        'port': port,
-                        'latency': 1.0,
-                        'success': True
-                    }
-                else:
-                    # 既没有成功指示符也没有失败指示符，视为失败
-                    print(f"[TCPing] ✗ No success indicators found, treating as failure: {host}:{port}")
-                    print(f"[TCPing Debug] Output lower: '{output_lower}'")
-                    return {
-                        'host': host,
-                        'port': port,
-                        'latency': None,
-                        'success': False
-                    }
-        else:
-            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
-            print(f"[TCPing] ✗ Failed: {host}:{port} - {error_msg}")
-            return {
-                'host': host,
-                'port': port,
-                'latency': None,  # 失败时应该返回None而不是0
-                'success': False
-            }
+                error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                print(f"[TCPing] ✗ Failed: {host}:{port} - {error_msg}")
+                return {
+                    'host': host,
+                    'port': port,
+                    'latency': None,
+                    'success': False
+                }
     
     except subprocess.TimeoutExpired:
         print(f"[TCPing] ✗ Timeout: {host}:{port}")
         return {
             'host': host,
             'port': port,
-            'latency': None,  # 超时时应该返回None而不是0
+            'latency': None,
             'success': False
         }
     except Exception as e:
@@ -1305,7 +1356,7 @@ def perform_tcping(host, port):
         return {
             'host': host,
             'port': port,
-            'latency': None,  # 异常时应该返回None而不是0
+            'latency': None,
             'success': False
         }
 
