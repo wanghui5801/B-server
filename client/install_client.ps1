@@ -159,23 +159,56 @@ function Install-BServerClient {
     # Create startup scripts
     Write-ColorOutput "[INFO] Creating management scripts..." "Blue"
     
-    # 启动脚本
+    # 启动脚本 - 带详细错误信息
     $startScript = @"
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client...
+echo Server: $ServerIP:3001
+echo Node: $NodeName
+echo.
 venv\Scripts\python.exe client.py
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Client failed to start. Error code: %errorlevel%
+    echo Check the following:
+    echo 1. Server $ServerIP:3001 is accessible
+    echo 2. Node '$NodeName' is added in admin panel
+    echo 3. Firewall allows outbound connections to port 3001
+    echo.
+)
 pause
 "@
     Set-Content -Path "start.bat" -Value $startScript -Encoding UTF8
 
-    # 后台启动脚本
+    # 后台启动脚本 - 修复并添加错误检查
     $startBackgroundScript = @"
 @echo off
 cd /d "%~dp0"
 echo Starting B-Server Client in background...
-start /min venv\Scripts\pythonw.exe client.py
-echo B-Server Client started in background
+echo Server: $ServerIP:3001
+echo Node: $NodeName
+echo.
+
+REM 先停止现有进程
+taskkill /f /im python.exe /fi "COMMANDLINE eq *client.py*" 2>nul
+taskkill /f /im pythonw.exe /fi "COMMANDLINE eq *client.py*" 2>nul
+
+REM 启动新进程
+start /min cmd /c "venv\Scripts\pythonw.exe client.py"
+
+REM 等待进程启动
+timeout /t 2 /nobreak >nul
+
+REM 检查是否启动成功
+tasklist /fi "IMAGENAME eq pythonw.exe" /fi "COMMANDLINE eq *client.py*" 2>nul | find "pythonw.exe" >nul
+if %errorlevel%==0 (
+    echo B-Server Client started successfully in background
+) else (
+    echo [ERROR] Failed to start client in background
+    echo Try running start.bat to see detailed error messages
+)
+echo.
 "@
     Set-Content -Path "start_background.bat" -Value $startBackgroundScript -Encoding UTF8
 
@@ -190,24 +223,97 @@ pause
 "@
     Set-Content -Path "stop.bat" -Value $stopScript -Encoding UTF8
 
-    # 状态检查脚本
+    # 状态检查脚本 - 增强版
     $statusScript = @"
 @echo off
-echo Checking B-Server Client status...
+echo ========================================
+echo B-Server Client Status Check
+echo ========================================
+echo Server: $ServerIP:3001
+echo Node: $NodeName
+echo Installation: %~dp0
+echo.
+echo Checking processes...
 tasklist /fi "IMAGENAME eq python.exe" /fi "COMMANDLINE eq *client.py*" 2>nul | find "python.exe" >nul
 if %errorlevel%==0 (
-    echo B-Server Client is running
+    echo [STATUS] B-Server Client is running (foreground)
+    tasklist /fi "IMAGENAME eq python.exe" /fi "COMMANDLINE eq *client.py*"
 ) else (
     tasklist /fi "IMAGENAME eq pythonw.exe" /fi "COMMANDLINE eq *client.py*" 2>nul | find "pythonw.exe" >nul
     if %errorlevel%==0 (
-        echo B-Server Client is running in background
+        echo [STATUS] B-Server Client is running (background)
+        tasklist /fi "IMAGENAME eq pythonw.exe" /fi "COMMANDLINE eq *client.py*"
     ) else (
-        echo B-Server Client is not running
+        echo [STATUS] B-Server Client is not running
+        echo.
+        echo To start the client:
+        echo   Foreground: start.bat
+        echo   Background: start_background.bat
+        echo.
+        echo To troubleshoot:
+        echo   1. Run start.bat to see error messages
+        echo   2. Check if server $ServerIP:3001 is accessible
+        echo   3. Ensure node '$NodeName' exists in admin panel
     )
 )
+echo.
 pause
 "@
     Set-Content -Path "status.bat" -Value $statusScript -Encoding UTF8
+
+    # 调试脚本 - 新增
+    $debugScript = @"
+@echo off
+cd /d "%~dp0"
+echo ========================================
+echo B-Server Client Debug Information
+echo ========================================
+echo Server: $ServerIP:3001
+echo Node: $NodeName
+echo Installation: %~dp0
+echo Time: %date% %time%
+echo.
+
+echo [1] Testing Python environment...
+venv\Scripts\python.exe --version
+if errorlevel 1 (
+    echo [ERROR] Python environment not working
+    goto :end
+)
+
+echo [2] Testing Python modules...
+venv\Scripts\python.exe -c "import sys, psutil, socketio, requests; print('All modules imported successfully')"
+if errorlevel 1 (
+    echo [ERROR] Python modules missing or broken
+    echo Try reinstalling: venv\Scripts\python.exe -m pip install psutil python-socketio requests tcping
+    goto :end
+)
+
+echo [3] Testing network connectivity...
+ping -n 1 $ServerIP >nul
+if errorlevel 1 (
+    echo [ERROR] Cannot reach server $ServerIP
+    echo Check network connection and firewall
+    goto :end
+) else (
+    echo Server $ServerIP is reachable
+)
+
+echo [4] Testing client configuration...
+venv\Scripts\python.exe -c "exec(open('client.py').read().split('if __name__')[0]); print(f'SERVER_URL: {SERVER_URL}'); print(f'NODE_NAME: {NODE_NAME}')"
+if errorlevel 1 (
+    echo [ERROR] Client configuration error
+    goto :end
+)
+
+echo [5] Starting client with verbose output...
+echo Press Ctrl+C to stop
+venv\Scripts\python.exe client.py
+
+:end
+pause
+"@
+    Set-Content -Path "debug.bat" -Value $debugScript -Encoding UTF8
 
     # 更新脚本 - 使用字符串格式化避免变量插值问题
     $updateScript = @"
@@ -322,6 +428,7 @@ print('[SUCCESS] Client configuration test passed')
     Write-Host "  Check Status: .\status.bat"
     Write-Host "  Stop Client: .\stop.bat"
     Write-Host "  Update Client: .\update.bat"
+    Write-Host "  Debug Client: .\debug.bat"
     Write-Host ""
     Write-ColorOutput "Important Notes:" "Yellow"
     Write-Host "  1. Please ensure node '$NodeName' is added in server admin panel"
@@ -329,14 +436,25 @@ print('[SUCCESS] Client configuration test passed')
     Write-Host "  3. First run may require firewall permission"
     Write-Host "  4. For auto-start on boot, refer to install_service.ps1"
     Write-Host ""
+    Write-ColorOutput "Troubleshooting:" "Yellow"
+    Write-Host "  - If client won't start, run debug.bat for detailed diagnostics"
+    Write-Host "  - If connection fails, check server IP and firewall settings"
+    Write-Host "  - If node not found, add '$NodeName' in server admin panel first"
+    Write-Host ""
     
     # Ask whether to start immediately
     $choice = Read-Host "Start client immediately? (Y/N)"
     if ($choice -eq 'Y' -or $choice -eq 'y') {
         Write-ColorOutput "[INFO] Starting B-Server client..." "Blue"
-        Start-Process -FilePath ".\start_background.bat" -WindowStyle Hidden
-        Start-Sleep -Seconds 2
+        Write-Host "Starting client in background..."
+        & ".\start_background.bat"
+        Start-Sleep -Seconds 3
+        Write-Host ""
+        Write-ColorOutput "[INFO] Checking status..." "Blue"
         & ".\status.bat"
+    } else {
+        Write-ColorOutput "[INFO] To start later, run: .\start_background.bat" "Blue"
+        Write-ColorOutput "[INFO] For troubleshooting, run: .\debug.bat" "Blue"
     }
     
     Write-ColorOutput "[INFO] Installation completed!" "Green"
