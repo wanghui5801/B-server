@@ -16,6 +16,7 @@ from datetime import datetime
 SERVER_URL = 'http://localhost:8008'  # Socket.IO server address (Docker Nginx proxy)
 NODE_NAME = socket.gethostname()  # Use hostname as node name, can be manually modified
 NODE_LOCATION = 'Local'  # Location
+CLIENT_VERSION = '1.3.0'  # 🔧 统一版本号
 
 # Network traffic statistics (for calculating rates)
 last_net_io = None
@@ -24,6 +25,9 @@ last_time = None
 # Prevent duplicate data sending
 last_send_time = 0
 SEND_COOLDOWN = 2  # 2 seconds cooldown
+
+# 🔧 添加数据发送锁，防止重复发送
+_data_sending = False
 
 # Create Socket.IO client
 sio = socketio.Client()
@@ -1586,19 +1590,8 @@ def collect_info():
 def connect():
     print(f"[Socket] Connected to server: {SERVER_URL}")
     print(f"[Socket] Attempting to register node: {NODE_NAME}")
-    # 尝试注册节点
+    # 🔧 简化连接处理：只注册，不发送心跳（main循环会处理）
     sio.emit('register', {'node_name': NODE_NAME})
-    
-    # 连接成功后立即发送一次心跳
-    try:
-        sio.emit('heartbeat', {
-            'timestamp': int(time.time() * 1000),
-            'node_name': NODE_NAME,
-            'version': '1.2.0',
-            'system_status': 'connected'
-        })
-    except Exception as e:
-        print(f"[Socket] Failed to send initial heartbeat: {e}")
 
 @sio.event
 def disconnect():
@@ -1608,12 +1601,7 @@ def disconnect():
 def registration_success(data):
     print(f"[Socket] ✓ Registration successful: {data['message']}")
     print(f"[Socket] Node '{NODE_NAME}' is now authorized and connected")
-    # 注册成功后立即发送一次数据确保状态同步
-    try:
-        send_data()
-        print(f"[Socket] Initial data sent after registration")
-    except Exception as e:
-        print(f"[Socket] Failed to send initial data: {e}")
+    # 🔧 注册成功后不立即发送数据，由main循环统一管理
 
 @sio.event
 def registration_failed(data):
@@ -1625,11 +1613,8 @@ def registration_failed(data):
 def error(data):
     print(f"[Socket] Error: {data['error']}")
 
-@sio.event
-def request_update(data):
-    """响应服务器的更新请求"""
-    print(f"[Socket] Server requested data update")
-    send_data()
+# 🔧 已移除 request_update 事件处理器，因为后端不再主动请求更新
+# 客户端现在按自己的节奏(5秒间隔)自主发送数据，避免重复发送冲突
 
 @sio.event
 def request_tcping(data):
@@ -1699,9 +1684,10 @@ def request_tcping(data):
             print(f"[TCPing] 无法发送错误结果")
 
 def try_connect():
-    """尝试连接到服务器"""
+    """尝试连接到服务器 - 简化版本，快速超时"""
     try:
-        sio.connect(SERVER_URL)
+        # 🔧 设置快速超时，避免长时间等待
+        sio.connect(SERVER_URL, wait_timeout=3)  # 3秒超时
         return True
     except Exception as e:
         print(f"[Socket] Connection failed: {e}")
@@ -1713,7 +1699,7 @@ def send_heartbeat():
         heartbeat_data = {
             'timestamp': int(time.time() * 1000),
             'node_name': NODE_NAME,
-            'version': '1.2.0',
+            'version': CLIENT_VERSION,  # 🔧 使用统一版本号
             'active_connections': 1,
             'system_status': 'active'
         }
@@ -1723,8 +1709,17 @@ def send_heartbeat():
         print(f"[Heartbeat] 发送失败: {e}")
 
 def send_data():
-    """发送系统数据 - 增强错误处理"""
+    """发送系统数据 - 增强错误处理，防止重复发送"""
+    global _data_sending
+    
+    # 🔧 防止重复发送
+    if _data_sending:
+        print(f"[Data] 跳过发送：另一个发送操作正在进行中")
+        return
+    
     try:
+        _data_sending = True
+        
         # 使用原有的数据收集函数
         data = collect_info()
         
@@ -1750,60 +1745,43 @@ def send_data():
         print(f"[Data] 发送数据异常: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        _data_sending = False
 
 def main():
-    """主函数 - 增强连接管理和错误恢复"""
-    print(f"[Client] B-Server Client v1.2.0 启动")
+    """主函数 - 简化连接管理，快速重连"""
+    print(f"[Client] B-Server Client v{CLIENT_VERSION} 启动")  # 🔧 使用统一版本号
     print(f"[Client] 节点名称: {NODE_NAME}")
     print(f"[Client] 服务器地址: {SERVER_URL}")
     
+    # 🔧 简化连接参数：快速重连，减少等待时间
+    connection_retry_interval = 5   # 5秒重试间隔（原来30秒）
+    heartbeat_interval = 15         # 15秒心跳间隔
+    data_send_interval = 5          # 5秒数据发送间隔
+    
     last_connection_attempt = 0
-    connection_retry_interval = 30  # 30秒重试间隔
-    max_connection_failures = 10   # 最大连续失败次数
-    connection_failures = 0
-    
-    # 心跳定时器
-    heartbeat_interval = 15  # 15秒心跳间隔
     last_heartbeat = 0
-    
-    # 数据发送定时器
-    data_send_interval = 5   # 5秒数据发送间隔
     last_data_send = 0
     
     while True:
         try:
             current_time = time.time()
             
-            # 检查连接状态
+            # 🔧 简化连接检查：不连接就立即重试
             if not sio.connected:
-                # 控制重连频率
                 if current_time - last_connection_attempt >= connection_retry_interval:
-                    print(f"[Client] 尝试连接服务器... (失败次数: {connection_failures})")
+                    print(f"[Client] 尝试连接服务器...")
                     last_connection_attempt = current_time
                     
                     if try_connect():
-                        print(f"[Client] ✓ 连接成功!")
-                        connection_failures = 0
-                        # 连接成功后立即发送一次数据
-                        send_data()
-                        last_data_send = current_time
+                        print(f"[Client] ✓ 连接成功! 等待注册完成...")
+                        # 🔧 连接成功后重置计时器，让正常的循环逻辑处理数据发送
+                        last_heartbeat = current_time - heartbeat_interval + 2  # 2秒后发送心跳
+                        last_data_send = current_time - data_send_interval + 3   # 3秒后发送数据
                     else:
-                        connection_failures += 1
-                        print(f"[Client] ✗ 连接失败 ({connection_failures}/{max_connection_failures})")
-                        
-                        # 如果连续失败次数过多，增加重试间隔
-                        if connection_failures >= 5:
-                            connection_retry_interval = 60  # 增加到60秒
-                        if connection_failures >= max_connection_failures:
-                            print(f"[Client] 连续失败次数过多，休眠5分钟后重试...")
-                            time.sleep(300)  # 休眠5分钟
-                            connection_failures = 0
-                            connection_retry_interval = 30  # 重置为30秒
+                        print(f"[Client] ✗ 连接失败，{connection_retry_interval}秒后重试")
             else:
-                # 已连接状态
-                connection_failures = 0
-                connection_retry_interval = 30  # 重置重试间隔
-                
+                # 🔧 已连接状态：正常发送心跳和数据
                 # 发送心跳包
                 if current_time - last_heartbeat >= heartbeat_interval:
                     send_heartbeat()
@@ -1814,16 +1792,16 @@ def main():
                     send_data()
                     last_data_send = current_time
             
-            # 短暂休眠避免CPU占用过高
-            time.sleep(1)
+            # 🔧 缩短休眠时间，提高响应速度
+            time.sleep(0.5)  # 0.5秒（原来1秒）
             
         except KeyboardInterrupt:
             print(f"\n[Client] 收到中断信号，正在关闭...")
             break
         except Exception as e:
             print(f"[Client] 主循环异常: {e}")
-            print(f"[Client] 5秒后重试...")
-            time.sleep(5)
+            print(f"[Client] 1秒后重试...")
+            time.sleep(1)  # 异常时快速重试
     
     # 清理连接
     try:
