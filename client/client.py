@@ -1654,8 +1654,18 @@ def main():
             
             # 如果已连接，保持连接状态，等待服务器请求更新
             if sio.connected:
-                # 每10秒检查一次连接状态
-                time.sleep(10)
+                # 每30秒发送一次心跳，减少网络负载
+                for i in range(30):
+                    if not sio.connected:
+                        break
+                    time.sleep(1)
+                
+                # 发送心跳包以保持连接活跃（30秒间隔）
+                if sio.connected:
+                    try:
+                        sio.emit('heartbeat', {'node_name': NODE_NAME, 'timestamp': time.time()})
+                    except Exception as e:
+                        print(f"[Socket] Heartbeat failed: {e}")
             else:
                 time.sleep(5)
                 
