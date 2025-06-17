@@ -1125,8 +1125,8 @@ def get_ip_addresses():
         'ipv6': ipv6                         # 原始IPv6地址（可能为None）
     }
 
-def python_tcping(host, port, timeout=5):
-    """Pure Python implementation of TCP ping to avoid CMD windows on Windows"""
+def python_tcping(host, port, timeout=8):
+    """Pure Python implementation of TCP ping to avoid CMD windows on Windows - 增强稳定性"""
     import socket
     import time
     
@@ -1150,12 +1150,15 @@ def python_tcping(host, port, timeout=5):
         if result == 0:
             # 延迟高于500ms视为失败
             if latency > 500:
+                print(f"[TCPing] ✗ High latency (>500ms): {host}:{port} - {latency:.2f}ms")
                 return {
                     'host': host,
                     'port': port,
                     'latency': None,
-                    'success': False
+                    'success': False,
+                    'error': 'High latency'
                 }
+            print(f"[TCPing] ✓ Success: {host}:{port} - {latency:.2f}ms")
             return {
                 'host': host,
                 'port': port,
@@ -1163,27 +1166,41 @@ def python_tcping(host, port, timeout=5):
                 'success': True
             }
         else:
+            print(f"[TCPing] ✗ Connection failed: {host}:{port} - error {result}")
             return {
                 'host': host,
                 'port': port,
                 'latency': None,
-                'success': False
+                'success': False,
+                'error': f'Connection error {result}'
             }
             
     except socket.timeout:
+        print(f"[TCPing] ✗ Timeout: {host}:{port}")
         return {
             'host': host,
             'port': port,
             'latency': None,
-            'success': False
+            'success': False,
+            'error': 'Socket timeout'
+        }
+    except socket.gaierror as e:
+        print(f"[TCPing] ✗ DNS resolution failed: {host}:{port} - {e}")
+        return {
+            'host': host,
+            'port': port,
+            'latency': None,
+            'success': False,
+            'error': f'DNS error: {e}'
         }
     except Exception as e:
-        print(f"[TCPing] Exception in python_tcping: {e}")
+        print(f"[TCPing] ✗ Exception in python_tcping: {e}")
         return {
             'host': host,
             'port': port,
             'latency': None,
-            'success': False
+            'success': False,
+            'error': str(e)
         }
 
 def find_tcping_executable():
@@ -1231,7 +1248,7 @@ def find_tcping_executable():
     return 'python_socket'
 
 def perform_tcping(host, port):
-    """执行tcping命令并返回结果 - 优先使用Python实现避免弹窗"""
+    """执行tcping命令并返回结果 - 增强稳定性和错误处理"""
     try:
         # 验证输入参数
         if not host or not port:
@@ -1240,51 +1257,82 @@ def perform_tcping(host, port):
                 'host': host or 'unknown',
                 'port': port or 0,
                 'latency': None,
-                'success': False
+                'success': False,
+                'error': 'Invalid parameters'
+            }
+        
+        # 规范化port为整数
+        try:
+            port = int(port)
+            if port <= 0 or port > 65535:
+                raise ValueError(f"Port {port} out of range")
+        except (ValueError, TypeError) as e:
+            print(f"[TCPing] ✗ 无效端口: {port}")
+            return {
+                'host': host,
+                'port': port,
+                'latency': None,
+                'success': False,
+                'error': f'Invalid port: {port}'
             }
         
         # 查找tcping方法
         tcping_method = find_tcping_executable()
         
-        # 使用Python socket方法 (避免弹窗)
+        # 使用Python socket方法 (避免弹窗，提高稳定性)
         if tcping_method == 'python_socket':
             print(f"[TCPing] Using built-in Python socket method for {host}:{port}")
-            return python_tcping(host, port)
+            return python_tcping(host, port, timeout=8)  # 增加超时到8秒
         
         # 使用Python tcping模块
         elif tcping_method == 'python_module':
             print(f"[TCPing] Using Python tcping module for {host}:{port}")
             try:
                 import tcping
-                result = tcping.Ping(host, int(port), timeout=5)
+                result = tcping.Ping(host, int(port), timeout=8)  # 增加超时到8秒
                 result.ping(1)  # Ping once
                 
-                if result.result:
-                    avg_time = result.result[0].time if result.result[0].time else 1.0
-                    # 延迟高于500ms视为失败
-                    if avg_time > 500:
+                if result.result and len(result.result) > 0:
+                    avg_time = result.result[0].time if result.result[0].time else None
+                    if avg_time is not None:
+                        # 延迟高于500ms视为失败
+                        if avg_time > 500:
+                            print(f"[TCPing] ✗ 高延迟(>500ms): {host}:{port} - {avg_time}ms")
+                            return {
+                                'host': host,
+                                'port': port,
+                                'latency': None,
+                                'success': False,
+                                'error': 'High latency'
+                            }
+                        print(f"[TCPing] ✓ Success: {host}:{port} - {avg_time}ms")
+                        return {
+                            'host': host,
+                            'port': port,
+                            'latency': round(avg_time, 2),
+                            'success': True
+                        }
+                    else:
+                        print(f"[TCPing] ✗ No latency data: {host}:{port}")
                         return {
                             'host': host,
                             'port': port,
                             'latency': None,
-                            'success': False
+                            'success': False,
+                            'error': 'No latency data'
                         }
-                    return {
-                        'host': host,
-                        'port': port,
-                        'latency': round(avg_time, 2),
-                        'success': True
-                    }
                 else:
+                    print(f"[TCPing] ✗ No result: {host}:{port}")
                     return {
                         'host': host,
                         'port': port,
                         'latency': None,
-                        'success': False
+                        'success': False,
+                        'error': 'No result'
                     }
             except Exception as e:
                 print(f"[TCPing] Python tcping module failed: {e}, falling back to socket method")
-                return python_tcping(host, port)
+                return python_tcping(host, port, timeout=8)
         
         # 使用外部tcping可执行文件 (仅限Linux/Unix)
         else:
@@ -1292,7 +1340,7 @@ def perform_tcping(host, port):
             cmd = [tcping_method, str(host), '-p', str(port), '-c', '1', '--report']
             
             print(f"[TCPing] Executing: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)  # 增加超时到15秒
             
             # 处理外部tcping命令的结果
             if result.returncode == 0:
@@ -1306,37 +1354,24 @@ def perform_tcping(host, port):
                 
                 # 首先检查是否连接成功（优先检查成功指示符）
                 if 'connected' in output_lower:
-                    # 检查具体的失败指示符（更精确的检查）
-                    specific_failure_indicators = ['time out!', 'timeout!', 'connection refused', 'unreachable', 'no route']
-                    
-                    # 如果输出包含具体的失败指示符，视为失败
-                    if any(indicator in output_lower for indicator in specific_failure_indicators):
-                        print(f"[TCPing] ✗ Failed (detected specific failure in output): {host}:{port}")
-                        return {
-                            'host': host,
-                            'port': port,
-                            'latency': None,
-                            'success': False
-                        }
-                    
-                    # 尝试多种正则表达式模式来提取延迟时间
-                    patterns = [
-                        r'time=(\d+\.?\d*)\s*ms',  # time=1.78 ms
-                        r'time:\s*(\d+\.?\d*)\s*ms',  # time: 1.78 ms
-                        r'(\d+\.?\d*)\s*ms'  # 任何数字+ms的组合
+                    # 尝试解析延迟时间
+                    latency_patterns = [
+                        r'time=(\d+(?:\.\d+)?)ms',
+                        r'(\d+(?:\.\d+)?)ms',
+                        r'time:\s*(\d+(?:\.\d+)?)ms',
+                        r'latency:\s*(\d+(?:\.\d+)?)ms',
+                        r'rtt:\s*(\d+(?:\.\d+)?)ms'
                     ]
                     
                     latency = None
-                    
-                    for pattern in patterns:
-                        matches = re.findall(pattern, output)
-                        if matches:
-                            # 如果找到多个匹配，取第一个（通常是实际的延迟时间）
-                            latency = float(matches[0])
-                            break
-                    
-                    print(f"[TCPing Debug] Found 'connected' in output")
-                    print(f"[TCPing Debug] Extracted latency: {latency}")
+                    for pattern in latency_patterns:
+                        match = re.search(pattern, output_lower)
+                        if match:
+                            try:
+                                latency = float(match.group(1))
+                                break
+                            except (ValueError, IndexError):
+                                continue
                     
                     if latency is not None and latency > 0:
                         # 延迟高于500ms视为失败
@@ -1346,13 +1381,14 @@ def perform_tcping(host, port):
                                 'host': host,
                                 'port': port,
                                 'latency': None,
-                                'success': False
+                                'success': False,
+                                'error': 'High latency'
                             }
                         print(f"[TCPing] ✓ Success: {host}:{port} - {latency}ms")
                         return {
                             'host': host,
                             'port': port,
-                            'latency': latency,
+                            'latency': round(latency, 2),
                             'success': True
                         }
                     else:
@@ -1363,7 +1399,8 @@ def perform_tcping(host, port):
                                 'host': host,
                                 'port': port,
                                 'latency': None,
-                                'success': False
+                                'success': False,
+                                'error': 'Zero latency failure'
                             }
                         else:
                             # 连接成功但无法解析延迟，给一个默认值
@@ -1393,7 +1430,8 @@ def perform_tcping(host, port):
                             'host': host,
                             'port': port,
                             'latency': None,
-                            'success': False
+                            'success': False,
+                            'error': 'No success indicators'
                         }
             else:
                 error_msg = result.stderr.strip() if result.stderr else "Unknown error"
@@ -1402,7 +1440,8 @@ def perform_tcping(host, port):
                     'host': host,
                     'port': port,
                     'latency': None,
-                    'success': False
+                    'success': False,
+                    'error': error_msg
                 }
     
     except subprocess.TimeoutExpired:
@@ -1411,7 +1450,8 @@ def perform_tcping(host, port):
             'host': host,
             'port': port,
             'latency': None,
-            'success': False
+            'success': False,
+            'error': 'Timeout'
         }
     except Exception as e:
         print(f"[TCPing] ✗ Exception: {host}:{port} - {str(e)}")
@@ -1419,7 +1459,8 @@ def perform_tcping(host, port):
             'host': host,
             'port': port,
             'latency': None,
-            'success': False
+            'success': False,
+            'error': str(e)
         }
 
 def collect_info():
@@ -1547,6 +1588,17 @@ def connect():
     print(f"[Socket] Attempting to register node: {NODE_NAME}")
     # 尝试注册节点
     sio.emit('register', {'node_name': NODE_NAME})
+    
+    # 连接成功后立即发送一次心跳
+    try:
+        sio.emit('heartbeat', {
+            'timestamp': int(time.time() * 1000),
+            'node_name': NODE_NAME,
+            'version': '1.2.0',
+            'system_status': 'connected'
+        })
+    except Exception as e:
+        print(f"[Socket] Failed to send initial heartbeat: {e}")
 
 @sio.event
 def disconnect():
@@ -1556,7 +1608,12 @@ def disconnect():
 def registration_success(data):
     print(f"[Socket] ✓ Registration successful: {data['message']}")
     print(f"[Socket] Node '{NODE_NAME}' is now authorized and connected")
-    # 注册成功后不立即发送数据，等待服务器请求
+    # 注册成功后立即发送一次数据确保状态同步
+    try:
+        send_data()
+        print(f"[Socket] Initial data sent after registration")
+    except Exception as e:
+        print(f"[Socket] Failed to send initial data: {e}")
 
 @sio.event
 def registration_failed(data):
@@ -1576,14 +1633,70 @@ def request_update(data):
 
 @sio.event
 def request_tcping(data):
-    """响应服务器的tcping请求"""
-    host = data.get('host')
-    port = data.get('port')
-    print(f"[TCPing] Server requested ping to {host}:{port}")
-    
-    # 执行tcping并返回结果
-    result = perform_tcping(host, port)
-    sio.emit('tcping_result', result)
+    """响应服务器的tcping请求 - 增强错误处理和数据完整性"""
+    try:
+        host = data.get('host')
+        port = data.get('port')
+        request_id = data.get('request_id')
+        request_timestamp = data.get('timestamp')
+        
+        if not host or not port:
+            print(f"[TCPing] 收到无效请求: host={host}, port={port}")
+            return
+        
+        print(f"[TCPing] Server requested ping to {host}:{port} (request_id: {request_id})")
+        
+        # 记录请求处理开始时间
+        start_time = time.time()
+        
+        # 执行tcping并返回结果
+        result = perform_tcping(host, port)
+        
+        # 计算处理时间
+        processing_time = (time.time() - start_time) * 1000
+        
+        # 增强结果数据
+        enhanced_result = {
+            **result,
+            'request_id': request_id,
+            'request_timestamp': request_timestamp,
+            'response_timestamp': int(time.time() * 1000),
+            'processing_time_ms': round(processing_time, 2)
+        }
+        
+        print(f"[TCPing] 发送结果: {host}:{port} -> {result['success']} {result.get('latency', 'N/A')}ms (处理耗时: {processing_time:.1f}ms)")
+        
+        # 发送结果，使用重试机制确保数据传输
+        retry_count = 0
+        max_retries = 3
+        
+        while retry_count < max_retries:
+            try:
+                sio.emit('tcping_result', enhanced_result)
+                break  # 发送成功，退出重试循环
+            except Exception as emit_error:
+                retry_count += 1
+                print(f"[TCPing] 发送结果失败 (尝试 {retry_count}/{max_retries}): {emit_error}")
+                if retry_count < max_retries:
+                    time.sleep(0.1)  # 短暂延迟后重试
+                else:
+                    print(f"[TCPing] 发送结果最终失败: {host}:{port}")
+        
+    except Exception as e:
+        print(f"[TCPing] 处理请求异常: {e}")
+        # 即使出错也要发送失败结果
+        try:
+            error_result = {
+                'host': data.get('host', 'unknown'),
+                'port': data.get('port', 0),
+                'latency': None,
+                'success': False,
+                'request_id': data.get('request_id'),
+                'error': str(e)
+            }
+            sio.emit('tcping_result', error_result)
+        except:
+            print(f"[TCPing] 无法发送错误结果")
 
 def try_connect():
     """尝试连接到服务器"""
@@ -1594,100 +1707,133 @@ def try_connect():
         print(f"[Socket] Connection failed: {e}")
         return False
 
+def send_heartbeat():
+    """发送心跳包 - 增强连接监控"""
+    try:
+        heartbeat_data = {
+            'timestamp': int(time.time() * 1000),
+            'node_name': NODE_NAME,
+            'version': '1.2.0',
+            'active_connections': 1,
+            'system_status': 'active'
+        }
+        sio.emit('heartbeat', heartbeat_data)
+        print(f"[Heartbeat] 发送心跳包: {time.strftime('%H:%M:%S')}")
+    except Exception as e:
+        print(f"[Heartbeat] 发送失败: {e}")
+
 def send_data():
-    """发送系统数据"""
-    global last_send_time
-    
-    current_time = time.time()
-    time_since_last = current_time - last_send_time
-    
-    print(f"[Data] Send request - Time since last send: {time_since_last:.1f}s")
-    
-    if time_since_last < SEND_COOLDOWN:
-        print(f"[Data] ⏸ Skipped - cooling down ({SEND_COOLDOWN - time_since_last:.1f}s remaining)")
-        return False
-    
-    if sio.connected:
+    """发送系统数据 - 增强错误处理"""
+    try:
+        # 使用原有的数据收集函数
         data = collect_info()
-        sio.emit('report_data', data)
-        last_send_time = current_time
-        print(f"[Data] ✓ Sent: CPU={data['cpu']}% RAM={data['ram']}% ROM={data['rom']}% ({data['detail']['partitions_count']} disks)")
-        return True
-    else:
-        print(f"[Data] ✗ Skipped - not connected")
-        return False
+        
+        # 发送数据，增加重试机制
+        retry_count = 0
+        max_retries = 3
+        
+        while retry_count < max_retries:
+            try:
+                sio.emit('report_data', data)
+                print(f"[Data] 数据发送成功: CPU {data['cpu']}%, RAM {data['ram']}%, ROM {data['rom']}%")
+                break
+            except Exception as emit_error:
+                retry_count += 1
+                print(f"[Data] 发送失败 (尝试 {retry_count}/{max_retries}): {emit_error}")
+                if retry_count < max_retries:
+                    time.sleep(1)  # 延迟1秒后重试
+                else:
+                    print(f"[Data] 数据发送最终失败")
+                    raise emit_error
+        
+    except Exception as e:
+        print(f"[Data] 发送数据异常: {e}")
+        import traceback
+        traceback.print_exc()
 
 def main():
-    print(f"Starting monitoring client for node: {NODE_NAME}")
-    print(f"Server: {SERVER_URL}")
-    print("=" * 50)
-    print(f"IMPORTANT: Make sure node '{NODE_NAME}' is added in admin panel first!")
-    print("=" * 50)
+    """主函数 - 增强连接管理和错误恢复"""
+    print(f"[Client] B-Server Client v1.2.0 启动")
+    print(f"[Client] 节点名称: {NODE_NAME}")
+    print(f"[Client] 服务器地址: {SERVER_URL}")
     
-    retry_count = 0
-    max_retries = 5
-    base_retry_delay = 10
+    last_connection_attempt = 0
+    connection_retry_interval = 30  # 30秒重试间隔
+    max_connection_failures = 10   # 最大连续失败次数
+    connection_failures = 0
+    
+    # 心跳定时器
+    heartbeat_interval = 15  # 15秒心跳间隔
+    last_heartbeat = 0
+    
+    # 数据发送定时器
+    data_send_interval = 5   # 5秒数据发送间隔
+    last_data_send = 0
     
     while True:
         try:
-            # 如果未连接，尝试连接
-            if not sio.connected:
-                print(f"[Socket] Attempting to connect (attempt {retry_count + 1})...")
-                if try_connect():
-                    # 连接成功，重置重试计数
-                    retry_count = 0
-                    print(f"[Socket] Connection established, waiting for registration...")
-                    time.sleep(3)  # 给注册过程更多时间
-                else:
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        # 使用指数退避算法
-                        delay = min(base_retry_delay * (2 ** (retry_count - max_retries)), 300)  # 最大5分钟
-                        print(f"[Socket] Max retries exceeded, backing off for {delay}s...")
-                        time.sleep(delay)
-                        retry_count = 0  # 重置计数，重新开始
-                    else:
-                        delay = base_retry_delay
-                        print(f"[Socket] Connection failed, retrying in {delay} seconds...")
-                        time.sleep(delay)
-                    continue
+            current_time = time.time()
             
-            # 如果已连接，保持连接状态，等待服务器请求更新
-            if sio.connected:
-                # 每30秒发送一次心跳，减少网络负载
-                for i in range(30):
-                    if not sio.connected:
-                        break
-                    time.sleep(1)
-                
-                # 发送心跳包以保持连接活跃（30秒间隔）
-                if sio.connected:
-                    try:
-                        sio.emit('heartbeat', {'node_name': NODE_NAME, 'timestamp': time.time()})
-                    except Exception as e:
-                        print(f"[Socket] Heartbeat failed: {e}")
+            # 检查连接状态
+            if not sio.connected:
+                # 控制重连频率
+                if current_time - last_connection_attempt >= connection_retry_interval:
+                    print(f"[Client] 尝试连接服务器... (失败次数: {connection_failures})")
+                    last_connection_attempt = current_time
+                    
+                    if try_connect():
+                        print(f"[Client] ✓ 连接成功!")
+                        connection_failures = 0
+                        # 连接成功后立即发送一次数据
+                        send_data()
+                        last_data_send = current_time
+                    else:
+                        connection_failures += 1
+                        print(f"[Client] ✗ 连接失败 ({connection_failures}/{max_connection_failures})")
+                        
+                        # 如果连续失败次数过多，增加重试间隔
+                        if connection_failures >= 5:
+                            connection_retry_interval = 60  # 增加到60秒
+                        if connection_failures >= max_connection_failures:
+                            print(f"[Client] 连续失败次数过多，休眠5分钟后重试...")
+                            time.sleep(300)  # 休眠5分钟
+                            connection_failures = 0
+                            connection_retry_interval = 30  # 重置为30秒
             else:
-                time.sleep(5)
+                # 已连接状态
+                connection_failures = 0
+                connection_retry_interval = 30  # 重置重试间隔
                 
+                # 发送心跳包
+                if current_time - last_heartbeat >= heartbeat_interval:
+                    send_heartbeat()
+                    last_heartbeat = current_time
+                
+                # 发送数据
+                if current_time - last_data_send >= data_send_interval:
+                    send_data()
+                    last_data_send = current_time
+            
+            # 短暂休眠避免CPU占用过高
+            time.sleep(1)
+            
         except KeyboardInterrupt:
-            print(f"\n[Main] Received interrupt signal, shutting down...")
+            print(f"\n[Client] 收到中断信号，正在关闭...")
             break
         except Exception as e:
-            print(f"[Main] Unexpected error: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"[Client] 主循环异常: {e}")
+            print(f"[Client] 5秒后重试...")
             time.sleep(5)
     
     # 清理连接
     try:
         if sio.connected:
-            print("[Main] Disconnecting from server...")
+            print(f"[Client] 断开服务器连接...")
             sio.disconnect()
-            time.sleep(1)  # 给断开连接一些时间
-    except Exception as e:
-        print(f"[Main] Error during cleanup: {e}")
+    except:
+        pass
     
-    print(f"[Main] Client stopped")
+    print(f"[Client] 客户端已退出")
 
 if __name__ == '__main__':
     main() 
