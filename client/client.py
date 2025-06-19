@@ -16,27 +16,47 @@ from datetime import datetime
 SERVER_URL = 'http://localhost:8008'  # Socket.IO server address (Docker Nginx proxy)
 NODE_NAME = socket.gethostname()  # Use hostname as node name, can be manually modified
 NODE_LOCATION = 'Local'  # Location
-CLIENT_VERSION = '1.3.0'  # 🔧 统一版本号
+CLIENT_VERSION = '1.3.1'  # 🔧 统一版本号
 
 # Network traffic statistics (for calculating rates)
-last_net_io = None
-last_time = None
+previous_net_io = None
+last_net_time = None
 
 # Prevent duplicate data sending
-last_send_time = 0
-SEND_COOLDOWN = 2  # 2 seconds cooldown
-
-# 🔧 添加数据发送锁，防止重复发送
-_data_sending = False
+# 这个变量将被移除，因为我们使用了更好的连接状态管理
 
 # Create Socket.IO client
-sio = socketio.Client()
+sio = socketio.Client(
+    reconnection=False,             # 🔧 禁用自动重连，由我们的简单机制处理
+    logger=False,                   # 禁用详细日志，避免日志过多
+    engineio_logger=False,          # 禁用Engine.IO日志
+    # Engine.IO特定配置
+    request_timeout=10,             # 请求超时10秒
+    http_session=None,              # 可以自定义HTTP会话
+    ssl_verify=True,                # SSL验证
+    websocket_extra_options={       # WebSocket额外选项
+        'timeout': 10,              # WebSocket连接超时
+        'ping_interval': 10,        # 心跳间隔
+        'ping_timeout': 20,         # 心跳超时
+    }
+)
 
 # Cache system type detection results
 _cached_system_type = None
 
 # Cache CPU info (solution for Windows-specific issues)
 _cached_cpu_info = None
+
+# Global variables
+_system_type_cache = None
+_cpu_info_cache = None
+_cache_timestamp = 0
+CACHE_DURATION = 60  # Cache system info for 60 seconds to reduce overhead
+
+# 🔧 增强全局状态跟踪
+_connection_stable = False
+_registration_confirmed = False
+_last_successful_data_send = 0
 
 def detect_system_type():
     """智能检测系统类型"""
@@ -976,27 +996,27 @@ def get_load_average():
 
 def get_network_speed():
     """获取网络速度（B/s）- 优化版本"""
-    global last_net_io, last_time
+    global previous_net_io, last_net_time
     try:
         current_net_io = psutil.net_io_counters()
         current_time = time.time()
         
-        if last_net_io is None or last_time is None:
-            last_net_io = current_net_io
-            last_time = current_time
+        if previous_net_io is None or last_net_time is None:
+            previous_net_io = current_net_io
+            last_net_time = current_time
             return "0B", "0B"
         
-        time_delta = current_time - last_time
+        time_delta = current_time - last_net_time
         if time_delta <= 0:
             return "0B", "0B"
             
-        # 计算每秒字节数
-        bytes_sent_per_sec = max(0, (current_net_io.bytes_sent - last_net_io.bytes_sent) / time_delta)
-        bytes_recv_per_sec = max(0, (current_net_io.bytes_recv - last_net_io.bytes_recv) / time_delta)
+        # 计算速度 (bytes per second)
+        bytes_sent_speed = (current_net_io.bytes_sent - previous_net_io.bytes_sent) / time_delta
+        bytes_recv_speed = (current_net_io.bytes_recv - previous_net_io.bytes_recv) / time_delta
         
-        # 更新全局变量
-        last_net_io = current_net_io
-        last_time = current_time
+        # 更新记录
+        previous_net_io = current_net_io
+        last_net_time = current_time
         
         def format_bytes(bytes_val):
             if bytes_val < 0:
@@ -1010,7 +1030,7 @@ def get_network_speed():
             else:
                 return f"{bytes_val/(1024*1024*1024):.1f}G"
         
-        return format_bytes(bytes_recv_per_sec), format_bytes(bytes_sent_per_sec)
+        return format_bytes(bytes_recv_speed), format_bytes(bytes_sent_speed)
     except Exception as e:
         print(f"[Network] Error calculating network speed: {e}")
         return "0B", "0B"
@@ -1588,230 +1608,399 @@ def collect_info():
 # Socket.IO 事件处理器
 @sio.event
 def connect():
-    print(f"[Socket] Connected to server: {SERVER_URL}")
-    print(f"[Socket] Attempting to register node: {NODE_NAME}")
-    # 🔧 简化连接处理：只注册，不发送心跳（main循环会处理）
-    sio.emit('register', {'node_name': NODE_NAME})
+    global _connection_stable, _registration_confirmed
+    print(f"[Socket] ✅ Connected to server: {SERVER_URL}")
+    _connection_stable = True
+    _registration_confirmed = False  # 重置注册状态，等待注册确认
+    # 🔧 连接成功后立即注册，避免延迟
+    print(f"[Socket] 📝 Sending registration request for node: {NODE_NAME}")
+    try:
+        sio.emit('register', {'node_name': NODE_NAME})
+        print(f"[Socket] 📤 Registration request sent")
+    except Exception as reg_error:
+        print(f"[Socket] ❌ Failed to send registration: {reg_error}")
 
 @sio.event
 def disconnect():
-    print(f"[Socket] Disconnected from server")
+    global _connection_stable, _registration_confirmed
+    print(f"[Socket] ❌ Disconnected from server - will attempt reconnection")
+    _connection_stable = False
+    _registration_confirmed = False
+
+@sio.event
+def connect_error(data):
+    global _connection_stable, _registration_confirmed
+    print(f"[Socket] ❌ Connection error: {data}")
+    _connection_stable = False
+    _registration_confirmed = False
+
+@sio.event
+def reconnect():
+    global _connection_stable, _registration_confirmed
+    print(f"[Socket] 🔄 Reconnected to server successfully")
+    _connection_stable = True
+    _registration_confirmed = False  # 重置注册状态
+    # 重连后重新注册
+    print(f"[Socket] 📝 Sending re-registration request for node: {NODE_NAME}")
+    try:
+        sio.emit('register', {'node_name': NODE_NAME})
+        print(f"[Socket] 📤 Re-registration request sent")
+    except Exception as reg_error:
+        print(f"[Socket] ❌ Failed to send re-registration: {reg_error}")
+
+@sio.event  
+def reconnect_error(data):
+    global _connection_stable, _registration_confirmed
+    print(f"[Socket] ❌ Reconnection error: {data}")
+    _connection_stable = False
+    _registration_confirmed = False
+
+@sio.event
+def connection_replaced(data):
+    print(f"[Socket] ⚠️  Connection replaced by new instance: {data.get('message', 'Unknown reason')}")
+    print(f"[Socket] New socket ID: {data.get('new_socket_id', 'Unknown')}") 
+    print(f"[Socket] This connection will be closed, allowing new connection to take over")
+    # 不需要做任何特殊处理，让Socket.IO自然断开并重连
 
 @sio.event
 def registration_success(data):
-    print(f"[Socket] ✓ Registration successful: {data['message']}")
-    print(f"[Socket] Node '{NODE_NAME}' is now authorized and connected")
-    # 🔧 注册成功后不立即发送数据，由main循环统一管理
+    global _registration_confirmed
+    socket_id = data.get('socket_id', 'Unknown')
+    print(f"[Socket] ✅ Node '{NODE_NAME}' registered successfully (socket: {socket_id})")
+    _registration_confirmed = True  # 🔧 确认注册成功
+    print(f"[Socket] 🎉 Registration confirmed, client is now fully operational")
 
 @sio.event
 def registration_failed(data):
-    print(f"[Socket] ✗ Registration failed: {data['error']}")
-    print(f"[Socket] Please ensure node '{NODE_NAME}' is added in the admin panel")
-    print(f"[Socket] Retrying in 10 seconds...")
+    global _registration_confirmed
+    error_msg = data.get('error', 'Unknown error')
+    print(f"[Socket] ❌ Registration failed: {error_msg}")
+    _registration_confirmed = False
+    print(f"[Socket] 🔄 Will retry registration...")
 
 @sio.event
 def error(data):
-    print(f"[Socket] Error: {data['error']}")
+    print(f"[Socket] ❌ Socket error: {data}")
 
-# 🔧 已移除 request_update 事件处理器，因为后端不再主动请求更新
-# 客户端现在按自己的节奏(5秒间隔)自主发送数据，避免重复发送冲突
-
+# 🔧 增强TCPing请求处理，添加连接状态检查
 @sio.event
 def request_tcping(data):
     """响应服务器的tcping请求 - 增强错误处理和数据完整性"""
+    if not sio.connected:
+        print(f"[TCPing] ❌ Socket not connected, ignoring request")
+        return
+        
+    host = data.get('host')
+    port = data.get('port')
+    request_id = data.get('request_id', 'unknown')
+    
+    if not host or not port:
+        print(f"[TCPing] ❌ 收到无效请求: host={host}, port={port}")
+        return
+    
+    print(f"[TCPing] Server requested ping to {host}:{port} (request_id: {request_id})")
+    
+    start_time = time.time()
+    
     try:
-        host = data.get('host')
-        port = data.get('port')
-        request_id = data.get('request_id')
-        request_timestamp = data.get('timestamp')
-        
-        if not host or not port:
-            print(f"[TCPing] 收到无效请求: host={host}, port={port}")
-            return
-        
-        print(f"[TCPing] Server requested ping to {host}:{port} (request_id: {request_id})")
-        
-        # 记录请求处理开始时间
-        start_time = time.time()
-        
         # 执行tcping并返回结果
         result = perform_tcping(host, port)
         
-        # 计算处理时间
-        processing_time = (time.time() - start_time) * 1000
+        processing_time = (time.time() - start_time) * 1000  # 转换为毫秒
         
         # 增强结果数据
         enhanced_result = {
             **result,
             'request_id': request_id,
-            'request_timestamp': request_timestamp,
-            'response_timestamp': int(time.time() * 1000),
-            'processing_time_ms': round(processing_time, 2)
+            'node_name': NODE_NAME,
+            'processing_time_ms': round(processing_time, 1),
+            'timestamp': int(time.time() * 1000)
         }
         
         print(f"[TCPing] 发送结果: {host}:{port} -> {result['success']} {result.get('latency', 'N/A')}ms (处理耗时: {processing_time:.1f}ms)")
         
-        # 发送结果，使用重试机制确保数据传输
-        retry_count = 0
+        # 🔧 增强发送错误处理，包含连接状态检查
         max_retries = 3
-        
-        while retry_count < max_retries:
+        for retry_count in range(1, max_retries + 1):
             try:
+                if not sio.connected:
+                    print(f"[TCPing] ❌ Socket disconnected during send, aborting")
+                    break
+                    
                 sio.emit('tcping_result', enhanced_result)
-                break  # 发送成功，退出重试循环
+                break  # 发送成功
             except Exception as emit_error:
-                retry_count += 1
                 print(f"[TCPing] 发送结果失败 (尝试 {retry_count}/{max_retries}): {emit_error}")
                 if retry_count < max_retries:
-                    time.sleep(0.1)  # 短暂延迟后重试
+                    time.sleep(0.1)  # 短暂等待后重试
                 else:
                     print(f"[TCPing] 发送结果最终失败: {host}:{port}")
         
     except Exception as e:
         print(f"[TCPing] 处理请求异常: {e}")
-        # 即使出错也要发送失败结果
+        # 发送错误结果
+        error_result = {
+            'host': host,
+            'port': port,
+            'success': False,
+            'error': str(e),
+            'request_id': request_id,
+            'node_name': NODE_NAME,
+            'timestamp': int(time.time() * 1000)
+        }
         try:
-            error_result = {
-                'host': data.get('host', 'unknown'),
-                'port': data.get('port', 0),
-                'latency': None,
-                'success': False,
-                'request_id': data.get('request_id'),
-                'error': str(e)
-            }
-            sio.emit('tcping_result', error_result)
+            if sio.connected:
+                sio.emit('tcping_result', error_result)
         except:
             print(f"[TCPing] 无法发送错误结果")
 
 def try_connect():
-    """尝试连接到服务器 - 简化版本，快速超时"""
+    """尝试连接到服务器 - 简化版本"""
     try:
-        # 🔧 设置快速超时，避免长时间等待
-        sio.connect(SERVER_URL, wait_timeout=3)  # 3秒超时
-        return True
+        # 🔧 简化：直接检查连接状态
+        if sio.connected:
+            print(f"[Socket] Already connected, skipping connection attempt")
+            return True
+            
+        print(f"[Socket] 🔄 Attempting to connect to {SERVER_URL}...")
+        
+        # 🔧 简化：直接连接，不做复杂的清理
+        sio.connect(SERVER_URL, wait_timeout=10)  # 10秒超时
+        
+        # 连接成功
+        if sio.connected:
+            print(f"[Socket] ✅ Connection established successfully")
+            return True
+        else:
+            print(f"[Socket] ❌ Connection failed - socket not connected after connect()")
+            return False
+            
     except Exception as e:
-        print(f"[Socket] Connection failed: {e}")
+        print(f"[Socket] ❌ Connection failed: {e}")
         return False
 
 def send_heartbeat():
-    """发送心跳包 - 增强连接监控"""
-    try:
-        heartbeat_data = {
-            'timestamp': int(time.time() * 1000),
-            'node_name': NODE_NAME,
-            'version': CLIENT_VERSION,  # 🔧 使用统一版本号
-            'active_connections': 1,
-            'system_status': 'active'
-        }
-        sio.emit('heartbeat', heartbeat_data)
-        print(f"[Heartbeat] 发送心跳包: {time.strftime('%H:%M:%S')}")
-    except Exception as e:
-        print(f"[Heartbeat] 发送失败: {e}")
+    """发送心跳包 - 增强连接检测"""
+    if sio.connected:
+        try:
+            sio.emit('heartbeat', {
+                'node_name': NODE_NAME,
+                'timestamp': int(time.time() * 1000),
+                'version': CLIENT_VERSION
+            })
+            # 只在调试模式下显示心跳日志
+            # print(f"[Socket] ❤️ Heartbeat sent")
+        except Exception as e:
+            print(f"[Socket] ❌ Heartbeat failed: {e}")
+            return False
+    return True
 
 def send_data():
-    """发送系统数据 - 增强错误处理，防止重复发送"""
-    global _data_sending
+    """发送监控数据 - 增强错误处理和连接检查"""
+    global _last_successful_data_send, _connection_stable
     
-    # 🔧 防止重复发送
-    if _data_sending:
-        print(f"[Data] 跳过发送：另一个发送操作正在进行中")
-        return
-    
-    try:
-        _data_sending = True
+    if not sio.connected:
+        print(f"[Client] ⚠️  Socket not connected, skipping data send")
+        _connection_stable = False
+        return False
         
-        # 使用原有的数据收集函数
+    if not _registration_confirmed:
+        print(f"[Client] ⚠️  Node not registered yet, skipping data send")
+        return False
+        
+    try:
+        # 收集系统信息
         data = collect_info()
         
-        # 发送数据，增加重试机制
-        retry_count = 0
+        # 发送数据，包含重试机制
         max_retries = 3
-        
-        while retry_count < max_retries:
+        for attempt in range(1, max_retries + 1):
             try:
+                if not sio.connected:
+                    print(f"[Client] ❌ Socket disconnected during send attempt {attempt}")
+                    _connection_stable = False
+                    return False
+                    
                 sio.emit('report_data', data)
-                print(f"[Data] 数据发送成功: CPU {data['cpu']}%, RAM {data['ram']}%, ROM {data['rom']}%")
-                break
-            except Exception as emit_error:
-                retry_count += 1
-                print(f"[Data] 发送失败 (尝试 {retry_count}/{max_retries}): {emit_error}")
-                if retry_count < max_retries:
-                    time.sleep(1)  # 延迟1秒后重试
+                # 只在第一次尝试或重试成功时显示详细日志
+                if attempt == 1:
+                    print(f"[Client] ✅ Data sent: CPU={data['cpu']}% RAM={data['ram']}% ROM={data['rom']}%")
+                elif attempt > 1:
+                    print(f"[Client] ✅ Data sent successfully (attempt {attempt})")
+                
+                # 🔧 记录成功发送时间
+                _last_successful_data_send = time.time()
+                _connection_stable = True
+                return True
+                
+            except Exception as send_error:
+                print(f"[Client] ❌ Failed to send data (attempt {attempt}/{max_retries}): {send_error}")
+                _connection_stable = False
+                if attempt < max_retries:
+                    time.sleep(0.5)  # 等待0.5秒后重试
                 else:
-                    print(f"[Data] 数据发送最终失败")
-                    raise emit_error
-        
+                    return False
+                    
     except Exception as e:
-        print(f"[Data] 发送数据异常: {e}")
+        print(f"[Client] ❌ Failed to collect or send data: {e}")
+        _connection_stable = False
+        return False
+
+def test_connection_stability():
+    """测试连接稳定性 - 可选的诊断功能"""
+    print(f"[Test] 🔧 Testing connection stability...")
+    
+    # 测试基本连接
+    if try_connect():
+        print(f"[Test] ✅ Basic connection test passed")
+        
+        # 测试数据发送
+        if send_data():
+            print(f"[Test] ✅ Data transmission test passed")
+        else:
+            print(f"[Test] ❌ Data transmission test failed")
+        
+        # 测试心跳
+        if send_heartbeat():
+            print(f"[Test] ✅ Heartbeat test passed")
+        else:
+            print(f"[Test] ❌ Heartbeat test failed")
+        
+        # 断开连接进行重连测试
+        print(f"[Test] 🔄 Testing reconnection mechanism...")
+        try:
+            sio.disconnect()
+            time.sleep(2)  # 等待2秒
+            
+            if try_connect():
+                print(f"[Test] ✅ Reconnection test passed")
+            else:
+                print(f"[Test] ❌ Reconnection test failed")
+        except Exception as e:
+            print(f"[Test] ❌ Reconnection test error: {e}")
+    else:
+        print(f"[Test] ❌ Basic connection test failed")
+    
+    print(f"[Test] 🏁 Connection stability test completed")
+
+def main():
+    """主函数 - 简化重连机制，确保Socket隧道稳定性"""
+    print(f"[Client] 🚀 B-Server Monitor Client v{CLIENT_VERSION} starting...")
+    print(f"[Client] Node Name: {NODE_NAME}")
+    print(f"[Client] Server URL: {SERVER_URL}")
+    print(f"[Client] Location: {NODE_LOCATION}")
+    
+    # 🔧 简化参数配置 - 用户建议的简单方案
+    data_send_interval = 5          # 5秒发送数据间隔
+    heartbeat_interval = 30         # 30秒心跳间隔
+    reconnect_interval = 2          # 🔧 简化：2秒重连间隔
+    max_reconnect_attempts = 1000   # 🔧 简化：最多1000次重连尝试
+    registration_timeout = 10       # 🔧 修复：注册超时时间
+    
+    # 简化状态跟踪变量
+    last_data_send = 0
+    last_heartbeat = 0
+    last_registration_attempt = 0
+    reconnect_count = 0             # 🔧 简化：重连计数器
+    
+    # 🔧 第一次连接尝试
+    print(f"[Client] 🔄 Initial connection attempt...")
+    if try_connect():
+        reconnect_count = 0
+        last_registration_attempt = time.time()  # 记录注册时间
+        print(f"[Client] ✅ Initial connection successful")
+    else:
+        reconnect_count = 1
+        print(f"[Client] ❌ Initial connection failed, will start reconnection attempts")
+    
+    print(f"[Client] 🔁 Entering main monitoring loop...")
+    print(f"[Client] 📋 Reconnect policy: {reconnect_interval}s interval, max {max_reconnect_attempts} attempts")
+    
+    try:
+        while True:
+            current_time = time.time()
+            
+            # 🔧 简化连接检查 - 直接检查Socket状态
+            if not sio.connected:
+                # Socket断开，立即尝试重连
+                if reconnect_count < max_reconnect_attempts:
+                    reconnect_count += 1
+                    print(f"[Client] 🔄 Reconnection attempt #{reconnect_count}/{max_reconnect_attempts}...")
+                    
+                    if try_connect():
+                        reconnect_count = 0  # 重连成功，重置计数器
+                        last_registration_attempt = current_time  # 记录注册时间
+                        print(f"[Client] ✅ Reconnection successful, waiting for registration...")
+                        # 重连成功后稍微延迟再发送数据
+                        last_data_send = current_time + 2  # 2秒后可以发送数据
+                        last_heartbeat = current_time + 3  # 3秒后发送心跳
+                    else:
+                        print(f"[Client] ❌ Reconnection failed, waiting {reconnect_interval}s...")
+                        time.sleep(reconnect_interval)
+                        continue
+                else:
+                    # 达到最大重连次数，停止尝试
+                    print(f"[Client] 😴 Maximum reconnection attempts ({max_reconnect_attempts}) reached")
+                    print(f"[Client] 🛑 Stopping client - please check server connectivity")
+                    break
+            
+            # 🔧 修复：检查注册状态，如果连接但未注册且超时，重新尝试注册
+            elif not _registration_confirmed:
+                if current_time - last_registration_attempt > registration_timeout:
+                    print(f"[Client] ⚠️  Registration timeout, retrying...")
+                    try:
+                        sio.emit('register', {'node_name': NODE_NAME})
+                        last_registration_attempt = current_time
+                    except Exception as reg_error:
+                        print(f"[Client] ❌ Registration retry failed: {reg_error}")
+                        # 注册失败可能是连接问题，下次循环会检测到并重连
+            
+            # 🔧 发送监控数据 (仅在连接且已注册时)
+            if sio.connected and _registration_confirmed and current_time - last_data_send >= data_send_interval:
+                last_data_send = current_time
+                
+                if send_data():
+                    # 数据发送成功，连接稳定
+                    pass  # _connection_stable在send_data中已设置
+                else:
+                    # 数据发送失败，可能是连接问题
+                    print(f"[Client] ⚠️  Data send failed, connection may be unstable")
+            
+            # 🔧 发送心跳包 (仅在连接时)
+            if sio.connected and current_time - last_heartbeat >= heartbeat_interval:
+                last_heartbeat = current_time
+                
+                if not send_heartbeat():
+                    # 心跳失败，可能是连接问题
+                    print(f"[Client] ⚠️  Heartbeat failed, connection may be unstable")
+            
+            # 🔧 简化休眠逻辑
+            if sio.connected and _registration_confirmed:
+                sleep_time = 1.0  # 连接正常时短休眠
+            elif sio.connected:
+                sleep_time = 0.5  # 连接但未注册时短休眠，快速检测注册状态
+            else:
+                sleep_time = 0.5  # 断开连接时短休眠，快速重连
+                
+            time.sleep(sleep_time)
+    except KeyboardInterrupt:
+        print(f"\n[Client] 🛑 Keyboard interrupt received")
+    except Exception as e:
+        print(f"[Client] ❌ Unexpected error in main loop: {e}")
         import traceback
         traceback.print_exc()
     finally:
-        _data_sending = False
-
-def main():
-    """主函数 - 简化连接管理，快速重连"""
-    print(f"[Client] B-Server Client v{CLIENT_VERSION} 启动")  # 🔧 使用统一版本号
-    print(f"[Client] 节点名称: {NODE_NAME}")
-    print(f"[Client] 服务器地址: {SERVER_URL}")
-    
-    # 🔧 简化连接参数：快速重连，减少等待时间
-    connection_retry_interval = 5   # 5秒重试间隔（原来30秒）
-    heartbeat_interval = 15         # 15秒心跳间隔
-    data_send_interval = 5          # 5秒数据发送间隔
-    
-    last_connection_attempt = 0
-    last_heartbeat = 0
-    last_data_send = 0
-    
-    while True:
+        # 清理工作
+        print(f"[Client] 🧹 Cleaning up...")
         try:
-            current_time = time.time()
-            
-            # 🔧 简化连接检查：不连接就立即重试
-            if not sio.connected:
-                if current_time - last_connection_attempt >= connection_retry_interval:
-                    print(f"[Client] 尝试连接服务器...")
-                    last_connection_attempt = current_time
-                    
-                    if try_connect():
-                        print(f"[Client] ✓ 连接成功! 等待注册完成...")
-                        # 🔧 连接成功后重置计时器，让正常的循环逻辑处理数据发送
-                        last_heartbeat = current_time - heartbeat_interval + 2  # 2秒后发送心跳
-                        last_data_send = current_time - data_send_interval + 3   # 3秒后发送数据
-                    else:
-                        print(f"[Client] ✗ 连接失败，{connection_retry_interval}秒后重试")
-            else:
-                # 🔧 已连接状态：正常发送心跳和数据
-                # 发送心跳包
-                if current_time - last_heartbeat >= heartbeat_interval:
-                    send_heartbeat()
-                    last_heartbeat = current_time
-                
-                # 发送数据
-                if current_time - last_data_send >= data_send_interval:
-                    send_data()
-                    last_data_send = current_time
-            
-            # 🔧 缩短休眠时间，提高响应速度
-            time.sleep(0.5)  # 0.5秒（原来1秒）
-            
-        except KeyboardInterrupt:
-            print(f"\n[Client] 收到中断信号，正在关闭...")
-            break
-        except Exception as e:
-            print(f"[Client] 主循环异常: {e}")
-            print(f"[Client] 1秒后重试...")
-            time.sleep(1)  # 异常时快速重试
-    
-    # 清理连接
-    try:
-        if sio.connected:
-            print(f"[Client] 断开服务器连接...")
-            sio.disconnect()
-    except:
-        pass
-    
-    print(f"[Client] 客户端已退出")
+            if sio.connected:
+                print(f"[Client] 📡 Disconnecting from server...")
+                sio.disconnect()
+                time.sleep(1)  # 给断开连接一些时间
+        except Exception as cleanup_error:
+            print(f"[Client] ⚠️  Cleanup error: {cleanup_error}")
+        
+        print(f"[Client] 👋 Client stopped")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main() 
